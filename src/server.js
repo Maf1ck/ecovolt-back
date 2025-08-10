@@ -1,9 +1,23 @@
 import express from "express";
 import cors from "cors";
+import helmet from "helmet";
 import { config } from "./config/env.js";
 import productsRouter from "./routes/products.js";
 
 const app = express();
+
+app.use(
+  helmet({
+    contentSecurityPolicy: {
+      directives: {
+        defaultSrc: ["'self'"],
+        workerSrc: ["'self'", "blob:"],
+        scriptSrc: ["'self'", "'unsafe-inline'", "blob:"],
+        connectSrc: ["'self'", "*"],
+      },
+    },
+  })
+);
 
 app.use(cors());
 app.use(express.json());
