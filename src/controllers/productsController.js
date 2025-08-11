@@ -122,30 +122,41 @@ export const getProductById = async (req, res) => {
 // Отримання сонячних панелей
 export const getSolarPanels = async (req, res) => {
   try {
-    const { lastId } = req.query;
+    const { page = 1, limit = 8 } = req.query;
     
-    const response = await axios.get(
-      "https://my.prom.ua/api/v1/products/list",
-      {
-        headers: {
-          Authorization: `Bearer ${config.promApiToken}`,
-          "X-LANGUAGE": "uk",
-        },
-        params: {
-          limit: 100,
-          group_id: 97668952,
-          ...(lastId && { last_id: lastId }),
-        },
-      }
-    );
+    // Перевіряємо кеш для сонячних панелей
+    const now = Date.now();
+    if (!cache.solarPanels || !cache.lastUpdated || 
+        (now - cache.lastUpdated) > CACHE_DURATION) {
+      
+      // Завантажуємо всі товари, якщо кеш застарів
+      cache.allProducts = await fetchProducts();
+      cache.solarPanels = cache.allProducts.filter(
+        p => p.group?.id === 97668952
+      );
+      cache.lastUpdated = now;
+    }
 
-    // Повертаємо структуру, яку очікує фронтенд
+    const pageNum = Math.max(1, parseInt(page));
+    const limitNum = Math.max(1, parseInt(limit));
+    const start = (pageNum - 1) * limitNum;
+    const end = start + limitNum;
+
+    const paginatedPanels = cache.solarPanels.slice(start, end);
+    const hasMore = end < cache.solarPanels.length;
+
     res.json({
-      success: true, // Фронтенд перевіряє response.data.success
-      products: response.data.products || [],
-      last_id: response.data.last_id,
-      count: response.data.products?.length || 0,
-      fromCache: false // Вказуємо, що дані не з кешу
+      success: true,
+      products: paginatedPanels,
+      pagination: {
+        page: pageNum,
+        limit: limitNum,
+        totalPages: Math.ceil(cache.solarPanels.length / limitNum),
+        totalItems: cache.solarPanels.length,
+        hasMore: hasMore,
+        showing: `${start + 1}-${Math.min(end, cache.solarPanels.length)} з ${cache.solarPanels.length}`
+      },
+      fromCache: true
     });
   } catch (error) {
     console.error("Помилка при отриманні сонячних панелей:", error);
