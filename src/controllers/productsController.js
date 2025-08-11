@@ -118,37 +118,17 @@ export const getProductById = async (req, res) => {
     });
   }
 };
-let solarPanelsCache = {
-  data: [],
-  lastUpdated: null,
-  lastId: null
-};
-// Оновлення кешу
+
+// Отримання сонячних панелей
 export const getSolarPanels = async (req, res) => {
   try {
     const { lastId } = req.query;
     
-    // Перевіряємо чи можна використати кеш
-    const shouldUseCache = !lastId && 
-                         solarPanelsCache.lastUpdated && 
-                         (Date.now() - solarPanelsCache.lastUpdated) < CACHE_DURATION;
-
-    if (shouldUseCache) {
-      console.log("Returning cached solar panels");
-      return res.json({
-        success: true,
-        products: solarPanelsCache.data,
-        last_id: solarPanelsCache.lastId,
-        count: solarPanelsCache.data.length
-      });
-    }
-
-    console.log("Fetching fresh solar panels data...");
     const response = await axios.get(
       "https://my.prom.ua/api/v1/products/list",
       {
         headers: {
-          Authorization: `Bearer ${config.PROM_API_TOKEN}`,
+          Authorization: `Bearer ${config.promApiToken}`,
           "X-LANGUAGE": "uk",
         },
         params: {
@@ -156,52 +136,40 @@ export const getSolarPanels = async (req, res) => {
           group_id: 97668952,
           ...(lastId && { last_id: lastId }),
         },
-        timeout: 10000
       }
     );
 
-    const products = response.data.products || [];
-    const newLastId = response.data.last_id;
+    res.json({
+      products: response.data.products || [],
+      last_id: response.data.last_id,
+      count: response.data.products?.length || 0
+    });
+  } catch (error) {
+    res.status(500).json({
+      error: "Помилка при отриманні сонячних панелей",
+      details: error.message
+    });
+  }
+};
 
-    // Оновлюємо кеш тільки для першого запиту (без lastId)
-    if (!lastId) {
-      solarPanelsCache = {
-        data: products,
-        lastUpdated: Date.now(),
-        lastId: newLastId
-      };
-    }
-
+// Функція для оновлення кешу
+export const refreshCache = async (req, res) => {
+  try {
+    cache.allProducts = await fetchProducts();
+    cache.solarPanels = cache.allProducts.filter(
+      p => p.group?.id === 97668952
+    );
+    cache.lastUpdated = Date.now();
+    
     res.json({
       success: true,
-      products,
-      last_id: newLastId,
-      count: products.length
+      count: cache.allProducts.length,
+      solarPanelsCount: cache.solarPanels.length
     });
-
   } catch (error) {
-    console.error("API Error:", {
-      message: error.message,
-      response: error.response?.data,
-      config: error.config
-    });
-
-    // Спроба повернути кешовані дані у разі помилки
-    if (solarPanelsCache.data.length > 0) {
-      console.warn("Returning cached data due to API error");
-      return res.json({
-        success: true,
-        products: solarPanelsCache.data,
-        last_id: solarPanelsCache.lastId,
-        count: solarPanelsCache.data.length,
-        fromCache: true
-      });
-    }
-
     res.status(500).json({
-      success: false,
-      error: "Помилка сервера",
-      details: process.env.NODE_ENV === 'development' ? error.message : undefined
+      error: "Не вдалося оновити кеш",
+      details: error.message
     });
   }
 };
