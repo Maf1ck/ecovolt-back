@@ -2,7 +2,7 @@ import axios from "axios";
 import { config } from "../config/env.js";
 
 export const getProducts = async (req, res) => {
-  const { limit = 8, last_id } = req.query;
+  const { limit = 10, last_id } = req.query;
 
   try {
     const response = await axios.get(
