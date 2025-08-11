@@ -4,11 +4,29 @@ import { config } from "../config/env.js";
 // Кеш для товарів
 const cache = {
   allProducts: null,
-  solarPanels: null,
+  categorizedProducts: {},
   lastUpdated: null
 };
 
 const CACHE_DURATION = 5 * 60 * 1000; // 5 хвилин
+
+// Мапа категорій з їх group_id (ці ID потрібно взяти з вашого Prom.ua)
+const CATEGORY_GROUPS = {
+  'solar-panels': 97668952,
+  'inverters': 130134486, // Замініть на реальний ID
+  'fuses': null,
+  'ups': null,
+  'cables': 130135807,
+  'optimizers': 130139474,
+  'controllers': null,
+  'mounting': 130139468,
+  'batteries': 140995307,
+  'drone-batteries': null,
+  'charging-stations': null,
+  'mushrooms': null,
+  'boilers': null,
+  'air-conditioners': 130300043
+};
 
 // Функція для завантаження товарів з API
 const fetchProducts = async (filter = null) => {
@@ -26,7 +44,7 @@ const fetchProducts = async (filter = null) => {
             "X-LANGUAGE": "uk",
           },
           params: {
-            limit: 100,
+            limit: 500,
             ...(lastId && { last_id: lastId }),
           },
         }
@@ -57,40 +75,73 @@ const fetchProducts = async (filter = null) => {
   }
 };
 
+// Функція для категоризації товарів
+const categorizeProducts = (products) => {
+  const categorized = {};
+  
+  // Ініціалізуємо категорії
+  Object.keys(CATEGORY_GROUPS).forEach(category => {
+    categorized[category] = [];
+  });
+
+  products.forEach(product => {
+    const groupId = product.group?.id;
+    
+    // Знаходимо категорію за group_id
+    const category = Object.entries(CATEGORY_GROUPS).find(
+      ([key, id]) => id === groupId
+    );
+    
+    if (category) {
+      categorized[category[0]].push(product);
+    }
+  });
+
+  return categorized;
+};
+
 // Отримання товарів з кешуванням
 export const getProducts = async (req, res) => {
   try {
-    const { page = 1, limit = 8, solarPanels } = req.query;
-    const shouldFilter = solarPanels === 'true';
+    const { page = 1, limit = 8, category } = req.query;
     
     // Перевірка кешу
     const now = Date.now();
     if (!cache.allProducts || !cache.lastUpdated || 
         (now - cache.lastUpdated) > CACHE_DURATION) {
       cache.allProducts = await fetchProducts();
-      cache.solarPanels = cache.allProducts.filter(
-        p => p.group?.id === 97668952
-      );
+      cache.categorizedProducts = categorizeProducts(cache.allProducts);
       cache.lastUpdated = now;
     }
 
-    const products = shouldFilter ? cache.solarPanels : cache.allProducts;
+    let products;
+    if (category && cache.categorizedProducts[category]) {
+      products = cache.categorizedProducts[category];
+    } else {
+      products = cache.allProducts;
+    }
+
     const pageNum = Math.max(1, parseInt(page));
     const limitNum = Math.max(1, parseInt(limit));
     const start = (pageNum - 1) * limitNum;
     const end = start + limitNum;
 
     res.json({
+      success: true,
       products: products.slice(start, end),
       pagination: {
         page: pageNum,
+        limit: limitNum,
         totalPages: Math.ceil(products.length / limitNum),
         totalItems: products.length,
-        hasMore: end < products.length
-      }
+        hasMore: end < products.length,
+        showing: `${start + 1}-${Math.min(end, products.length)} з ${products.length}`
+      },
+      fromCache: true
     });
   } catch (error) {
     res.status(500).json({
+      success: false,
       error: "Помилка сервера",
       details: error.message
     });
@@ -119,50 +170,53 @@ export const getProductById = async (req, res) => {
   }
 };
 
-// Отримання сонячних панелей
-export const getSolarPanels = async (req, res) => {
+// Отримання товарів за категорією
+export const getProductsByCategory = async (req, res) => {
   try {
+    const { category } = req.params;
     const { page = 1, limit = 8 } = req.query;
-    
-    // Перевіряємо кеш для сонячних панелей
+
+    if (!CATEGORY_GROUPS.hasOwnProperty(category)) {
+      return res.status(400).json({
+        success: false,
+        error: "Невідома категорія"
+      });
+    }
+
+    // Перевірка кешу
     const now = Date.now();
-    if (!cache.solarPanels || !cache.lastUpdated || 
+    if (!cache.allProducts || !cache.lastUpdated || 
         (now - cache.lastUpdated) > CACHE_DURATION) {
-      
-      // Завантажуємо всі товари, якщо кеш застарів
       cache.allProducts = await fetchProducts();
-      cache.solarPanels = cache.allProducts.filter(
-        p => p.group?.id === 97668952
-      );
+      cache.categorizedProducts = categorizeProducts(cache.allProducts);
       cache.lastUpdated = now;
     }
 
+    const products = cache.categorizedProducts[category] || [];
     const pageNum = Math.max(1, parseInt(page));
     const limitNum = Math.max(1, parseInt(limit));
     const start = (pageNum - 1) * limitNum;
     const end = start + limitNum;
 
-    const paginatedPanels = cache.solarPanels.slice(start, end);
-    const hasMore = end < cache.solarPanels.length;
-
     res.json({
       success: true,
-      products: paginatedPanels,
+      products: products.slice(start, end),
       pagination: {
         page: pageNum,
         limit: limitNum,
-        totalPages: Math.ceil(cache.solarPanels.length / limitNum),
-        totalItems: cache.solarPanels.length,
-        hasMore: hasMore,
-        showing: `${start + 1}-${Math.min(end, cache.solarPanels.length)} з ${cache.solarPanels.length}`
+        totalPages: Math.ceil(products.length / limitNum),
+        totalItems: products.length,
+        hasMore: end < products.length,
+        showing: `${start + 1}-${Math.min(end, products.length)} з ${products.length}`
       },
+      category: category,
       fromCache: true
     });
   } catch (error) {
-    console.error("Помилка при отриманні сонячних панелей:", error);
+    console.error(`Помилка при отриманні категорії ${category}:`, error);
     res.status(500).json({
       success: false,
-      error: "Помилка при отриманні сонячних панелей",
+      error: `Помилка при отриманні категорії ${category}`,
       details: error.message
     });
   }
@@ -172,15 +226,16 @@ export const getSolarPanels = async (req, res) => {
 export const refreshCache = async (req, res) => {
   try {
     cache.allProducts = await fetchProducts();
-    cache.solarPanels = cache.allProducts.filter(
-      p => p.group?.id === 97668952
-    );
+    cache.categorizedProducts = categorizeProducts(cache.allProducts);
     cache.lastUpdated = Date.now();
     
     res.json({
       success: true,
       count: cache.allProducts.length,
-      solarPanelsCount: cache.solarPanels.length
+      categories: Object.entries(cache.categorizedProducts).map(([key, products]) => ({
+        category: key,
+        count: products.length
+      }))
     });
   } catch (error) {
     res.status(500).json({
