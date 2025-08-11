@@ -142,31 +142,43 @@ export const refreshCache = async (req, res) => {
 };
 export const getSolarPanels = async (req, res) => {
   try {
+    console.log("Fetching solar panels from Prom.ua...");
+    
     const response = await axios.get(
       "https://my.prom.ua/api/v1/products/list",
       {
         headers: {
-          Authorization: `Bearer ${config.promApiToken}`,
+          Authorization: `Bearer ${config.PROM_API_TOKEN}`,
           "X-LANGUAGE": "uk",
         },
         params: {
           limit: 100,
-          group_id: 97668952, // Фільтр по групі сонячних панелей
+          group_id: 97668952,
           ...(req.query.lastId && { last_id: req.query.lastId }),
         },
+        timeout: 10000 // 10 секунд таймауту
       }
     );
 
+    console.log("Successfully fetched solar panels");
+    
     res.json({
+      success: true,
       products: response.data.products || [],
       last_id: response.data.last_id,
       count: response.data.products?.length || 0
     });
   } catch (error) {
-    console.error("Error fetching solar panels:", error);
+    console.error("Error fetching solar panels:", {
+      message: error.message,
+      response: error.response?.data,
+      stack: error.stack
+    });
+    
     res.status(500).json({
-      error: "Failed to fetch solar panels",
-      details: error.message
+      success: false,
+      error: "Помилка при отриманні сонячних панелей",
+      details: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
 };
