@@ -140,3 +140,33 @@ export const refreshCache = async (req, res) => {
     });
   }
 };
+export const getSolarPanels = async (req, res) => {
+  try {
+    const response = await axios.get(
+      "https://my.prom.ua/api/v1/products/list",
+      {
+        headers: {
+          Authorization: `Bearer ${config.promApiToken}`,
+          "X-LANGUAGE": "uk",
+        },
+        params: {
+          limit: 100,
+          group_id: 97668952, // Фільтр по групі сонячних панелей
+          ...(req.query.lastId && { last_id: req.query.lastId }),
+        },
+      }
+    );
+
+    res.json({
+      products: response.data.products || [],
+      last_id: response.data.last_id,
+      count: response.data.products?.length || 0
+    });
+  } catch (error) {
+    console.error("Error fetching solar panels:", error);
+    res.status(500).json({
+      error: "Failed to fetch solar panels",
+      details: error.message
+    });
+  }
+};
