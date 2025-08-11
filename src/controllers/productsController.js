@@ -148,3 +148,35 @@ export const getCacheInfo = async (req, res) => {
     cache_expires_in_ms: isCacheValid ? CACHE_DURATION - cacheAge : 0
   });
 };
+
+export const getProductsByGroup = async (req, res) => {
+  const { page = 1, limit = 8, groupId } = req.query;
+  const pageNum = parseInt(page);
+  const limitNum = parseInt(limit);
+
+  try {
+    // Отримуємо всі товари (з кешу або API)
+    const allProducts = await fetchAllProducts();
+    
+    // Фільтруємо по group_id
+    const filteredProducts = allProducts.filter(
+      product => product.group?.id.toString() === groupId
+    );
+
+    // Пагінація
+    const startIdx = (pageNum - 1) * limitNum;
+    const paginatedProducts = filteredProducts.slice(startIdx, startIdx + limitNum);
+
+    res.json({
+      products: paginatedProducts,
+      pagination: {
+        current_page: pageNum,
+        total_pages: Math.ceil(filteredProducts.length / limitNum),
+        total_products: filteredProducts.length,
+        has_more: (startIdx + limitNum) < filteredProducts.length
+      }
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
