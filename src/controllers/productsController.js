@@ -1,86 +1,103 @@
 import axios from "axios";
 import { config } from "../config/env.js";
 
-// Кеш для товаров
-let cachedProducts = [];
-let lastFetchTime = 0;
-const CACHE_DURATION = 5 * 60 * 1000; // 5 минут
+// Кеш для товарів
+const cache = {
+  allProducts: null,
+  solarPanels: null,
+  lastUpdated: null
+};
 
-// Получение всех товаров
-export const getProducts = async (req, res) => {
+const CACHE_DURATION = 5 * 60 * 1000; // 5 хвилин
+
+// Функція для завантаження товарів з API
+const fetchProducts = async (filter = null) => {
+  let allProducts = [];
+  let lastId = null;
+  let hasMore = true;
+  
   try {
-    const { page = 1, limit = 8 } = req.query;
-    
-    // Проверка кеша
-    if (Date.now() - lastFetchTime > CACHE_DURATION) {
+    while (hasMore) {
       const response = await axios.get(
         "https://my.prom.ua/api/v1/products/list",
         {
           headers: {
-            Authorization: `Bearer ${config.PROM_API_TOKEN}`,
+            Authorization: `Bearer ${config.promApiToken}`,
             "X-LANGUAGE": "uk",
           },
-          params: { limit: 100 }
+          params: {
+            limit: 100,
+            ...(lastId && { last_id: lastId }),
+          },
         }
       );
-      cachedProducts = response.data.products || [];
-      lastFetchTime = Date.now();
+
+      const { products, last_id } = response.data;
+      
+      if (products?.length) {
+        const filtered = filter ? products.filter(filter) : products;
+        allProducts = [...allProducts, ...filtered];
+        
+        if (last_id && last_id !== lastId) {
+          lastId = last_id;
+        } else {
+          hasMore = false;
+        }
+      } else {
+        hasMore = false;
+      }
+
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }
+    
+    return allProducts;
+  } catch (error) {
+    console.error("Помилка при завантаженні:", error);
+    throw error;
+  }
+};
+
+// Отримання товарів з кешуванням
+export const getProducts = async (req, res) => {
+  try {
+    const { page = 1, limit = 8, solarPanels } = req.query;
+    const shouldFilter = solarPanels === 'true';
+    
+    // Перевірка кешу
+    const now = Date.now();
+    if (!cache.allProducts || !cache.lastUpdated || 
+        (now - cache.lastUpdated) > CACHE_DURATION) {
+      cache.allProducts = await fetchProducts();
+      cache.solarPanels = cache.allProducts.filter(
+        p => p.group?.id === 97668952
+      );
+      cache.lastUpdated = now;
     }
 
-    // Пагинация
-    const startIndex = (page - 1) * limit;
-    const endIndex = startIndex + limit;
-    const paginatedProducts = cachedProducts.slice(startIndex, endIndex);
+    const products = shouldFilter ? cache.solarPanels : cache.allProducts;
+    const pageNum = Math.max(1, parseInt(page));
+    const limitNum = Math.max(1, parseInt(limit));
+    const start = (pageNum - 1) * limitNum;
+    const end = start + limitNum;
 
     res.json({
-      products: paginatedProducts,
+      products: products.slice(start, end),
       pagination: {
-        currentPage: page,
-        totalPages: Math.ceil(cachedProducts.length / limit),
-        totalProducts: cachedProducts.length,
-        showing: `${startIndex + 1}-${Math.min(endIndex, cachedProducts.length)}`
+        page: pageNum,
+        totalPages: Math.ceil(products.length / limitNum),
+        totalItems: products.length,
+        hasMore: end < products.length
       }
     });
   } catch (error) {
-    console.error("Error fetching products:", error);
-    res.status(500).json({ error: "Failed to fetch products" });
-  }
-};
-
-// Получение солнечных панелей
-export const getSolarPanels = async (req, res) => {
-  try {
-    const { lastId } = req.query;
-    const response = await axios.get(
-      "https://my.prom.ua/api/v1/products/list",
-      {
-        headers: {
-          Authorization: `Bearer ${config.PROM_API_TOKEN}`,
-          "X-LANGUAGE": "uk",
-        },
-        params: {
-          limit: 100,
-          ...(lastId && { last_id: lastId }),
-        },
-      }
-    );
-
-    const solarPanels = response.data.products?.filter(
-      product => product.group?.id === 97668952
-    ) || [];
-
-    res.json({
-      products: solarPanels,
-      last_id: response.data.last_id,
-      count: solarPanels.length,
+    res.status(500).json({
+      error: "Помилка сервера",
+      details: error.message
     });
-  } catch (error) {
-    console.error("Error fetching solar panels:", error);
-    res.status(500).json({ error: "Failed to fetch solar panels" });
   }
 };
 
-// Получение товара по ID
+// Отримання товару по ID
 export const getProductById = async (req, res) => {
   try {
     const { id } = req.params;
@@ -88,14 +105,38 @@ export const getProductById = async (req, res) => {
       `https://my.prom.ua/api/v1/products/${id}`,
       {
         headers: {
-          Authorization: `Bearer ${config.PROM_API_TOKEN}`,
+          Authorization: `Bearer ${config.promApiToken}`,
           "X-LANGUAGE": "uk",
         },
       }
     );
     res.json(response.data);
   } catch (error) {
-    console.error(`Error fetching product ${id}:`, error);
-    res.status(500).json({ error: "Failed to fetch product" });
+    res.status(500).json({
+      error: "Не вдалося отримати товар",
+      details: error.message
+    });
+  }
+};
+
+// Оновлення кешу
+export const refreshCache = async (req, res) => {
+  try {
+    cache.allProducts = await fetchProducts();
+    cache.solarPanels = cache.allProducts.filter(
+      p => p.group?.id === 97668952
+    );
+    cache.lastUpdated = Date.now();
+    
+    res.json({
+      success: true,
+      count: cache.allProducts.length,
+      solarPanelsCount: cache.solarPanels.length
+    });
+  } catch (error) {
+    res.status(500).json({
+      error: "Не вдалося оновити кеш",
+      details: error.message
+    });
   }
 };
