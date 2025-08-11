@@ -24,7 +24,7 @@ const fetchAllProducts = async () => {
             "X-LANGUAGE": "uk",
           },
           params: {
-            limit: 100, // Збільшуємо ліміт для швидшого завантаження
+            limit: 100,
             ...(lastId ? { last_id: lastId } : {}),
           },
         }
@@ -32,21 +32,16 @@ const fetchAllProducts = async () => {
 
       const { products, last_id } = response.data;
       
-      if (products && products.length > 0) {
-        allProducts = allProducts.concat(products);
+      if (products?.length > 0) {
+        allProducts = [...allProducts, ...products];
         console.log(`📦 Завантажено ${allProducts.length} товарів...`);
         
-        // Якщо є last_id, продовжуємо завантаження
-        if (last_id && last_id !== lastId) {
-          lastId = last_id;
-        } else {
-          hasMore = false;
-        }
+        lastId = last_id;
+        hasMore = !!last_id && last_id !== lastId;
       } else {
         hasMore = false;
       }
 
-      // Додаємо невелику затримку між запитами
       await new Promise(resolve => setTimeout(resolve, 100));
     }
 
@@ -149,23 +144,33 @@ export const getCacheInfo = async (req, res) => {
   });
 };
 
+const getProductsWithPagination = (products, page, limit) => {
+  const startIdx = (page - 1) * limit;
+  const endIdx = startIdx + limit;
+  return products.slice(startIdx, endIdx);
+};
+
+// Оновлена функція для фільтрації по групі
 export const getProductsByGroup = async (req, res) => {
   const { page = 1, limit = 8, groupId } = req.query;
-  const pageNum = parseInt(page);
-  const limitNum = parseInt(limit);
+  const pageNum = Math.max(1, parseInt(page));
+  const limitNum = Math.max(1, parseInt(limit));
 
   try {
-    // Отримуємо всі товари (з кешу або API)
-    const allProducts = await fetchAllProducts();
-    
-    // Фільтруємо по group_id
-    const filteredProducts = allProducts.filter(
-      product => product.group?.id.toString() === groupId
-    );
+    // Перевіряємо кеш
+    const now = Date.now();
+    if (!cachedProducts || !cacheTimestamp || (now - cacheTimestamp) >= CACHE_DURATION) {
+      cachedProducts = await fetchAllProducts();
+      cacheTimestamp = now;
+    }
+
+    // Фільтруємо товари
+    const filteredProducts = groupId 
+      ? cachedProducts.filter(p => p.group?.id?.toString() === groupId.toString())
+      : cachedProducts;
 
     // Пагінація
-    const startIdx = (pageNum - 1) * limitNum;
-    const paginatedProducts = filteredProducts.slice(startIdx, startIdx + limitNum);
+    const paginatedProducts = getProductsWithPagination(filteredProducts, pageNum, limitNum);
 
     res.json({
       products: paginatedProducts,
@@ -173,10 +178,17 @@ export const getProductsByGroup = async (req, res) => {
         current_page: pageNum,
         total_pages: Math.ceil(filteredProducts.length / limitNum),
         total_products: filteredProducts.length,
-        has_more: (startIdx + limitNum) < filteredProducts.length
+        products_per_page: limitNum,
+        has_more: (pageNum * limitNum) < filteredProducts.length,
+        showing: `${(pageNum - 1) * limitNum + 1}-${Math.min(pageNum * limitNum, filteredProducts.length)} з ${filteredProducts.length}`
       }
     });
+
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error("❌ Помилка при отриманні товарів:", error.message);
+    res.status(500).json({ 
+      error: "Не вдалося завантажити товари",
+      message: error.message 
+    });
   }
 };
