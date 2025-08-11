@@ -1,21 +1,19 @@
 import express from "express";
 import { 
+  getProducts,
   getSolarPanels,
-  getSolarPanelById,
-  searchSolarPanels 
+  getProductById
 } from "../controllers/productsController.js";
 
 const router = express.Router();
 
-// Получение списка солнечных панелей
+// Основной маршрут для товаров
+router.get("/", getProducts);
+
+// Маршрут для солнечных панелей
 router.get("/solar-panels", getSolarPanels);
 
-// Получение конкретной панели по ID
-router.get("/solar-panels/:id", getSolarPanelById);
-
-// Поиск панелей по названию
-router.get("/solar-panels/search/:query", searchSolarPanels);
-
-router.get("/", getProducts);
+// Маршрут для получения товара по ID
+router.get("/:id", getProductById);
 
 export default router;
