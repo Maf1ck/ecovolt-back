@@ -118,32 +118,32 @@ export const getProductById = async (req, res) => {
     });
   }
 };
-
-// Оновлення кешу
-export const refreshCache = async (req, res) => {
-  try {
-    cache.allProducts = await fetchProducts();
-    cache.solarPanels = cache.allProducts.filter(
-      p => p.group?.id === 97668952
-    );
-    cache.lastUpdated = Date.now();
-    
-    res.json({
-      success: true,
-      count: cache.allProducts.length,
-      solarPanelsCount: cache.solarPanels.length
-    });
-  } catch (error) {
-    res.status(500).json({
-      error: "Не вдалося оновити кеш",
-      details: error.message
-    });
-  }
+let solarPanelsCache = {
+  data: [],
+  lastUpdated: null,
+  lastId: null
 };
+// Оновлення кешу
 export const getSolarPanels = async (req, res) => {
   try {
-    console.log("Fetching solar panels from Prom.ua...");
+    const { lastId } = req.query;
     
+    // Перевіряємо чи можна використати кеш
+    const shouldUseCache = !lastId && 
+                         solarPanelsCache.lastUpdated && 
+                         (Date.now() - solarPanelsCache.lastUpdated) < CACHE_DURATION;
+
+    if (shouldUseCache) {
+      console.log("Returning cached solar panels");
+      return res.json({
+        success: true,
+        products: solarPanelsCache.data,
+        last_id: solarPanelsCache.lastId,
+        count: solarPanelsCache.data.length
+      });
+    }
+
+    console.log("Fetching fresh solar panels data...");
     const response = await axios.get(
       "https://my.prom.ua/api/v1/products/list",
       {
@@ -154,30 +154,53 @@ export const getSolarPanels = async (req, res) => {
         params: {
           limit: 100,
           group_id: 97668952,
-          ...(req.query.lastId && { last_id: req.query.lastId }),
+          ...(lastId && { last_id: lastId }),
         },
-        timeout: 10000 // 10 секунд таймауту
+        timeout: 10000
       }
     );
 
-    console.log("Successfully fetched solar panels");
-    
+    const products = response.data.products || [];
+    const newLastId = response.data.last_id;
+
+    // Оновлюємо кеш тільки для першого запиту (без lastId)
+    if (!lastId) {
+      solarPanelsCache = {
+        data: products,
+        lastUpdated: Date.now(),
+        lastId: newLastId
+      };
+    }
+
     res.json({
       success: true,
-      products: response.data.products || [],
-      last_id: response.data.last_id,
-      count: response.data.products?.length || 0
+      products,
+      last_id: newLastId,
+      count: products.length
     });
+
   } catch (error) {
-    console.error("Error fetching solar panels:", {
+    console.error("API Error:", {
       message: error.message,
       response: error.response?.data,
-      stack: error.stack
+      config: error.config
     });
-    
+
+    // Спроба повернути кешовані дані у разі помилки
+    if (solarPanelsCache.data.length > 0) {
+      console.warn("Returning cached data due to API error");
+      return res.json({
+        success: true,
+        products: solarPanelsCache.data,
+        last_id: solarPanelsCache.lastId,
+        count: solarPanelsCache.data.length,
+        fromCache: true
+      });
+    }
+
     res.status(500).json({
       success: false,
-      error: "Помилка при отриманні сонячних панелей",
+      error: "Помилка сервера",
       details: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
