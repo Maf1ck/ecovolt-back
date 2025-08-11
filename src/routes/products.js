@@ -2,19 +2,21 @@ import express from "express";
 import { 
   getProducts,
   getProductById,
-    refreshCache,
+  refreshCache,
   getSolarPanels 
 } from "../controllers/productsController.js";
 
 const router = express.Router();
 
-// Основні маршрути
+// ВАЖЛИВО: Специфічні маршрути повинні бути ПЕРЕД параметризованими маршрутами
+// Інакше /:id перехопить запити, призначені для /solar-panels
+
+// Спочатку специфічні маршрути
+router.get("/solar-panels", getSolarPanels);
+router.post("/refresh-cache", refreshCache);
+
+// Параметризовані маршрути в кінці
 router.get("/", getProducts);
 router.get("/:id", getProductById);
-
-// Додаткові маршрути для управління кешем
-router.post("/refresh-cache", refreshCache);
-router.get("/solar-panels", getSolarPanels);
-
 
 export default router;

@@ -139,13 +139,18 @@ export const getSolarPanels = async (req, res) => {
       }
     );
 
+    // Повертаємо структуру, яку очікує фронтенд
     res.json({
+      success: true, // Фронтенд перевіряє response.data.success
       products: response.data.products || [],
       last_id: response.data.last_id,
-      count: response.data.products?.length || 0
+      count: response.data.products?.length || 0,
+      fromCache: false // Вказуємо, що дані не з кешу
     });
   } catch (error) {
+    console.error("Помилка при отриманні сонячних панелей:", error);
     res.status(500).json({
+      success: false,
       error: "Помилка при отриманні сонячних панелей",
       details: error.message
     });
