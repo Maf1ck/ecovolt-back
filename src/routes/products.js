@@ -3,7 +3,8 @@ import {
   getProducts,
   getProductById,
   refreshCache,
-  getProductsByCategory 
+  getProductsByCategory,
+  getCacheStats
 } from "../controllers/productsController.js";
 
 const router = express.Router();
@@ -14,6 +15,7 @@ const router = express.Router();
 // Спочатку специфічні маршрути
 router.post("/refresh-cache", refreshCache);
 router.get("/category/:category", getProductsByCategory); // Новий маршрут для категорій
+router.get("/cache-stats", getCacheStats); // Новий маршрут для статистики кешу
 
 // Параметризовані маршрути в кінці
 router.get("/", getProducts);
