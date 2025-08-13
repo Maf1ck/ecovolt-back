@@ -34,21 +34,22 @@ const fetchProducts = async (filter = null) => {
   let lastId = null;
   let hasMore = true;
   let requestCount = 0;
-  const maxRequests = 200; // Збільшено максимальну кількість запитів
-  const requestLimit = 1000; // Максимальний ліміт на запит для Prom.ua
-  
-  console.log("🚀 Починаємо завантаження товарів");
-  
+
+  // Prom.ua максимум 100 товарів за запит
+  const requestLimit = 100; 
+
+  console.log("🚀 Починаємо повне завантаження товарів");
+
   try {
-    while (hasMore && requestCount < maxRequests) {
+    while (hasMore) {
       requestCount++;
-      console.log(`📞 Запит #${requestCount}${lastId ? `, lastId: ${lastId}` : ''}`);
-      
+      console.log(`📞 Запит #${requestCount}${lastId ? `, last_id: ${lastId}` : ''}`);
+
       const params = {
-        limit: requestLimit, // Використовуємо максимальний ліміт
+        limit: requestLimit,
         ...(lastId && { last_id: lastId }),
       };
-      
+
       const response = await axios.get(
         "https://my.prom.ua/api/v1/products/list",
         {
@@ -57,53 +58,38 @@ const fetchProducts = async (filter = null) => {
             "X-LANGUAGE": "uk",
           },
           params,
-          timeout: 45000, // Збільшено таймаут до 45 секунд
+          timeout: 30000,
         }
       );
 
       const { products, last_id } = response.data;
-      
+
       console.log(`📦 Отримано товарів: ${products?.length || 0}`);
-      
+
       if (products?.length > 0) {
         const filtered = filter ? products.filter(filter) : products;
-        allProducts = [...allProducts, ...filtered];
-        
+        allProducts.push(...filtered);
+
         console.log(`✅ Додано товарів: ${filtered.length}, всього: ${allProducts.length}`);
-        
-        // Оновлена логіка для продовження завантаження
-        if (!last_id) {
-          console.log("✅ last_id відсутній, досягнуто кінця");
-          hasMore = false;
-        } else if (last_id === lastId) {
-          console.log("⚠️ last_id не змінився, можливо досягнуто кінця");
+
+        if (!last_id || last_id === lastId) {
+          console.log("✅ Досягнуто кінця списку товарів");
           hasMore = false;
         } else {
           lastId = last_id;
-          
-          // Якщо отримали менше товарів ніж ліміт, можливо це останній запит
-          if (products.length < requestLimit) {
-            console.log(`⚠️ Отримано ${products.length} товарів, менше ніж ліміт ${requestLimit}`);
-            // Не завершуємо тут, бо можуть бути ще товари
-          }
         }
-        
       } else {
-        console.log("❌ Товари відсутні, завершуємо завантаження");
+        console.log("❌ Порожня відповідь, зупиняємось");
         hasMore = false;
       }
 
-      // Затримка між запитами для уникнення rate limit
-      await new Promise(resolve => setTimeout(resolve, 300)); // Збільшена затримка
+      // Невелика пауза, щоб не перевищити rate-limit Prom.ua
+      await new Promise(resolve => setTimeout(resolve, 300));
     }
-    
-    if (requestCount >= maxRequests) {
-      console.log(`⚠️ Досягнуто максимальну кількість запитів (${maxRequests})`);
-    }
-    
-    console.log(`✅ Завантаження завершено. Всього товарів: ${allProducts.length}`);
+
+    console.log(`🏁 Завантаження завершено. Всього товарів: ${allProducts.length}`);
     return allProducts;
-    
+
   } catch (error) {
     console.error("❌ Помилка при завантаженні:", error.message);
     if (error.response) {
@@ -241,20 +227,16 @@ const fetchProductsBatch = async (filter = null) => {
 // Функція для категоризації товарів
 const categorizeProducts = (products) => {
   const categorized = {};
-  
-  // Ініціалізуємо категорії
+
   Object.keys(CATEGORY_GROUPS).forEach(category => {
     categorized[category] = [];
   });
 
   products.forEach(product => {
     const groupId = product.group?.id;
-    
-    // Знаходимо категорію за group_id
     const category = Object.entries(CATEGORY_GROUPS).find(
       ([key, id]) => id === groupId
     );
-    
     if (category) {
       categorized[category[0]].push(product);
     }
@@ -294,20 +276,15 @@ const loadProductsWithRetry = async (filter = null, maxAttempts = 3) => {
 export const getProducts = async (req, res) => {
   try {
     const { page = 1, limit = 8, category } = req.query;
-    
-    // Перевірка кешу
+
     const now = Date.now();
-    if (!cache.allProducts || !cache.lastUpdated || 
-        (now - cache.lastUpdated) > CACHE_DURATION) {
+    if (!cache.allProducts || !cache.lastUpdated || (now - cache.lastUpdated) > CACHE_DURATION) {
       console.log("🔄 Оновлюємо кеш...");
-      
-      cache.allProducts = await loadProductsWithRetry();
+      cache.allProducts = await fetchProducts();
       cache.categorizedProducts = categorizeProducts(cache.allProducts);
       cache.lastUpdated = now;
-      
+
       console.log(`✅ Кеш оновлено. Всього товарів: ${cache.allProducts.length}`);
-      
-      // Логування кількості товарів по категоріям
       Object.entries(cache.categorizedProducts).forEach(([key, products]) => {
         if (products.length > 0) {
           console.log(`📂 ${key}: ${products.length} товарів`);
