@@ -1,15 +1,6 @@
 import axios from "axios";
 import { config } from "../config/env.js";
 
-// Кеш для товарів
-const cache = {
-  allProducts: null,
-  categorizedProducts: {},
-  lastUpdated: null
-};
-
-const CACHE_DURATION = 5 * 60 * 1000; // 5 хвилин
-
 // Мапа категорій з їх group_id
 const CATEGORY_GROUPS = {
   'solar-panels': 97668952,
@@ -28,17 +19,15 @@ const CATEGORY_GROUPS = {
   'air-conditioners': 130300043
 };
 
-// Основна функція для завантаження товарів з покращеною логікою
-const fetchProducts = async (filter = null) => {
+// Основна функція для завантаження всіх товарів
+const fetchAllProducts = async () => {
   let allProducts = [];
   let lastId = null;
   let hasMore = true;
   let requestCount = 0;
+  const requestLimit = 100; // Максимум для Prom.ua
 
-  // Prom.ua максимум 100 товарів за запит
-  const requestLimit = 100; 
-
-  console.log("🚀 Починаємо повне завантаження товарів");
+  console.log("🚀 Починаємо завантаження всіх товарів");
 
   try {
     while (hasMore) {
@@ -63,14 +52,11 @@ const fetchProducts = async (filter = null) => {
       );
 
       const { products, last_id } = response.data;
-
       console.log(`📦 Отримано товарів: ${products?.length || 0}`);
 
       if (products?.length > 0) {
-        const filtered = filter ? products.filter(filter) : products;
-        allProducts.push(...filtered);
-
-        console.log(`✅ Додано товарів: ${filtered.length}, всього: ${allProducts.length}`);
+        allProducts.push(...products);
+        console.log(`✅ Всього товарів: ${allProducts.length}`);
 
         if (!last_id || last_id === lastId) {
           console.log("✅ Досягнуто кінця списку товарів");
@@ -83,8 +69,8 @@ const fetchProducts = async (filter = null) => {
         hasMore = false;
       }
 
-      // Невелика пауза, щоб не перевищити rate-limit Prom.ua
-      await new Promise(resolve => setTimeout(resolve, 300));
+      // Пауза між запитами
+      await new Promise(resolve => setTimeout(resolve, 200));
     }
 
     console.log(`🏁 Завантаження завершено. Всього товарів: ${allProducts.length}`);
@@ -92,30 +78,42 @@ const fetchProducts = async (filter = null) => {
 
   } catch (error) {
     console.error("❌ Помилка при завантаженні:", error.message);
-    if (error.response) {
-      console.error("📄 Статус відповіді:", error.response.status);
-      console.error("📄 Дані відповіді:", error.response.data);
-    }
     throw error;
   }
 };
 
-// Функція з offset методом як резервна опція
-const fetchProductsWithOffset = async (filter = null) => {
-  let allProducts = [];
-  let offset = 0;
+// Функція для завантаження товарів за категорією
+const fetchProductsByCategory = async (categoryKey) => {
+  const groupId = CATEGORY_GROUPS[categoryKey];
+  
+  if (!groupId) {
+    console.log(`⚠️ Категорія ${categoryKey} не має group_id, завантажуємо всі товари`);
+    const allProducts = await fetchAllProducts();
+    return allProducts.filter(product => {
+      // Можна додати додаткову логіку фільтрації тут
+      return true;
+    });
+  }
+
+  let categoryProducts = [];
+  let lastId = null;
   let hasMore = true;
-  const limit = 1000; // Збільшено ліміт
   let requestCount = 0;
-  const maxRequests = 50; // Менше запитів, але з більшим лімітом
-  
-  console.log("🚀 Починаємо завантаження товарів з offset (резервний метод)");
-  
+  const requestLimit = 100;
+
+  console.log(`🚀 Завантажуємо товари категорії ${categoryKey} (group_id: ${groupId})`);
+
   try {
-    while (hasMore && requestCount < maxRequests) {
+    while (hasMore) {
       requestCount++;
-      console.log(`📞 Запит #${requestCount}, offset: ${offset}, limit: ${limit}`);
-      
+      console.log(`📞 Запит #${requestCount} для категорії ${categoryKey}`);
+
+      const params = {
+        limit: requestLimit,
+        group_id: groupId,
+        ...(lastId && { last_id: lastId }),
+      };
+
       const response = await axios.get(
         "https://my.prom.ua/api/v1/products/list",
         {
@@ -123,109 +121,43 @@ const fetchProductsWithOffset = async (filter = null) => {
             Authorization: `Bearer ${config.promApiToken}`,
             "X-LANGUAGE": "uk",
           },
-          params: {
-            limit: limit,
-            offset: offset
-          },
-          timeout: 45000,
+          params,
+          timeout: 30000,
         }
       );
 
-      const { products } = response.data;
-      
-      console.log(`📦 Отримано товарів: ${products?.length || 0}`);
-      
+      const { products, last_id } = response.data;
+      console.log(`📦 Отримано товарів для ${categoryKey}: ${products?.length || 0}`);
+
       if (products?.length > 0) {
-        const filtered = filter ? products.filter(filter) : products;
-        allProducts = [...allProducts, ...filtered];
-        
-        console.log(`✅ Всього товарів: ${allProducts.length}`);
-        
-        // Якщо отримали менше товарів ніж limit, значить це останній запит
-        if (products.length < limit) {
+        categoryProducts.push(...products);
+        console.log(`✅ Всього товарів в категорії ${categoryKey}: ${categoryProducts.length}`);
+
+        if (!last_id || last_id === lastId) {
+          console.log(`✅ Досягнуто кінця категорії ${categoryKey}`);
           hasMore = false;
-          console.log("✅ Отримано менше товарів ніж limit, завершуємо");
         } else {
-          offset += limit;
+          lastId = last_id;
         }
       } else {
-        hasMore = false;
-        console.log("❌ Товари відсутні, завершуємо");
-      }
-
-      await new Promise(resolve => setTimeout(resolve, 400)); // Збільшена затримка
-    }
-    
-    console.log(`✅ Завантаження завершено. Всього товарів: ${allProducts.length}`);
-    return allProducts;
-    
-  } catch (error) {
-    console.error("❌ Помилка при завантаженні з offset:", error.message);
-    throw error;
-  }
-};
-
-// Функція для пакетного завантаження (альтернативний підхід)
-const fetchProductsBatch = async (filter = null) => {
-  let allProducts = [];
-  let page = 1;
-  let hasMore = true;
-  const limit = 1000;
-  const maxPages = 100;
-  
-  console.log("🚀 Починаємо пакетне завантаження товарів");
-  
-  try {
-    while (hasMore && page <= maxPages) {
-      console.log(`📞 Завантажуємо сторінку ${page} з лімітом ${limit}`);
-      
-      const response = await axios.get(
-        "https://my.prom.ua/api/v1/products/list",
-        {
-          headers: {
-            Authorization: `Bearer ${config.promApiToken}`,
-            "X-LANGUAGE": "uk",
-          },
-          params: {
-            limit: limit,
-            offset: (page - 1) * limit
-          },
-          timeout: 45000,
-        }
-      );
-
-      const { products } = response.data;
-      
-      if (products?.length > 0) {
-        const filtered = filter ? products.filter(filter) : products;
-        allProducts = [...allProducts, ...filtered];
-        
-        console.log(`✅ Сторінка ${page}: отримано ${products.length}, загалом ${allProducts.length}`);
-        
-        if (products.length < limit) {
-          hasMore = false;
-          console.log("✅ Досягнуто кінця товарів");
-        } else {
-          page++;
-        }
-      } else {
+        console.log(`❌ Порожня відповідь для категорії ${categoryKey}`);
         hasMore = false;
       }
 
       await new Promise(resolve => setTimeout(resolve, 200));
     }
-    
-    console.log(`✅ Пакетне завантаження завершено. Всього товарів: ${allProducts.length}`);
-    return allProducts;
-    
+
+    console.log(`🏁 Завантаження категорії ${categoryKey} завершено. Товарів: ${categoryProducts.length}`);
+    return categoryProducts;
+
   } catch (error) {
-    console.error("❌ Помилка при пакетному завантаженні:", error.message);
+    console.error(`❌ Помилка завантаження категорії ${categoryKey}:`, error.message);
     throw error;
   }
 };
 
-// Функція для категоризації товарів
-const categorizeProducts = (products) => {
+// Функція для категоризації товарів (якщо завантажуємо всі)
+const categorizeAllProducts = (products) => {
   const categorized = {};
 
   Object.keys(CATEGORY_GROUPS).forEach(category => {
@@ -245,64 +177,38 @@ const categorizeProducts = (products) => {
   return categorized;
 };
 
-// Покращена функція завантаження з множинними спробами
-const loadProductsWithRetry = async (filter = null, maxAttempts = 3) => {
-  const methods = [
-    () => fetchProducts(filter),
-    () => fetchProductsWithOffset(filter),
-    () => fetchProductsBatch(filter)
-  ];
-  
-  for (let attempt = 0; attempt < maxAttempts; attempt++) {
-    for (let methodIndex = 0; methodIndex < methods.length; methodIndex++) {
-      try {
-        console.log(`🔄 Спроба ${attempt + 1}, метод ${methodIndex + 1}`);
-        const products = await methods[methodIndex]();
-        
-        if (products.length > 0) {
-          console.log(`✅ Успішно завантажено ${products.length} товарів методом ${methodIndex + 1}`);
-          return products;
-        }
-      } catch (error) {
-        console.error(`❌ Метод ${methodIndex + 1}, спроба ${attempt + 1} не вдалася:`, error.message);
-      }
-    }
-  }
-  
-  throw new Error("Всі методи завантаження товарів не вдалися");
-};
-
-// Отримання товарів з кешуванням
+// Отримання всіх товарів або товарів за категорією
 export const getProducts = async (req, res) => {
   try {
     const { page = 1, limit = 8, category } = req.query;
 
-    const now = Date.now();
-    if (!cache.allProducts || !cache.lastUpdated || (now - cache.lastUpdated) > CACHE_DURATION) {
-      console.log("🔄 Оновлюємо кеш...");
-      cache.allProducts = await fetchProducts();
-      cache.categorizedProducts = categorizeProducts(cache.allProducts);
-      cache.lastUpdated = now;
-
-      console.log(`✅ Кеш оновлено. Всього товарів: ${cache.allProducts.length}`);
-      Object.entries(cache.categorizedProducts).forEach(([key, products]) => {
-        if (products.length > 0) {
-          console.log(`📂 ${key}: ${products.length} товарів`);
-        }
-      });
-    }
+    console.log(`🔍 Запит товарів: category=${category || 'всі'}, page=${page}, limit=${limit}`);
 
     let products;
-    if (category && cache.categorizedProducts[category]) {
-      products = cache.categorizedProducts[category];
+
+    if (category && CATEGORY_GROUPS.hasOwnProperty(category)) {
+      // Завантажуємо конкретну категорію
+      products = await fetchProductsByCategory(category);
     } else {
-      products = cache.allProducts;
+      // Завантажуємо всі товари
+      const allProducts = await fetchAllProducts();
+      
+      if (category && CATEGORY_GROUPS.hasOwnProperty(category)) {
+        // Фільтруємо з усіх товарів
+        const categorized = categorizeAllProducts(allProducts);
+        products = categorized[category] || [];
+      } else {
+        products = allProducts;
+      }
     }
 
+    // Пагінація
     const pageNum = Math.max(1, parseInt(page));
     const limitNum = Math.max(1, parseInt(limit));
     const start = (pageNum - 1) * limitNum;
     const end = start + limitNum;
+
+    console.log(`📊 Всього товарів: ${products.length}, показуємо: ${start + 1}-${Math.min(end, products.length)}`);
 
     res.json({
       success: true,
@@ -315,14 +221,15 @@ export const getProducts = async (req, res) => {
         hasMore: end < products.length,
         showing: `${start + 1}-${Math.min(end, products.length)} з ${products.length}`
       },
-      fromCache: true,
-      totalProductsInCache: cache.allProducts?.length || 0
+      category: category || null,
+      totalProducts: products.length
     });
+
   } catch (error) {
     console.error("❌ Помилка в getProducts:", error);
     res.status(500).json({
       success: false,
-      error: "Помилка сервера",
+      error: "Помилка сервера при завантаженні товарів",
       details: error.message
     });
   }
@@ -332,6 +239,8 @@ export const getProducts = async (req, res) => {
 export const getProductById = async (req, res) => {
   try {
     const { id } = req.params;
+    console.log(`🔍 Завантажуємо товар з ID: ${id}`);
+
     const response = await axios.get(
       `https://my.prom.ua/api/v1/products/${id}`,
       {
@@ -342,45 +251,47 @@ export const getProductById = async (req, res) => {
         timeout: 15000,
       }
     );
-    res.json(response.data);
+
+    res.json({
+      success: true,
+      product: response.data
+    });
+
   } catch (error) {
     console.error(`❌ Помилка отримання товару ${req.params.id}:`, error.message);
     res.status(500).json({
+      success: false,
       error: "Не вдалося отримати товар",
       details: error.message
     });
   }
 };
 
-// Отримання товарів за категорією
+// Отримання товарів за категорією (окремий endpoint)
 export const getProductsByCategory = async (req, res) => {
   try {
     const { category } = req.params;
     const { page = 1, limit = 8 } = req.query;
 
+    console.log(`🔍 Запит товарів категорії: ${category}`);
+
     if (!CATEGORY_GROUPS.hasOwnProperty(category)) {
       return res.status(400).json({
         success: false,
-        error: "Невідома категорія"
+        error: "Невідома категорія",
+        availableCategories: Object.keys(CATEGORY_GROUPS)
       });
     }
 
-    // Перевірка кешу
-    const now = Date.now();
-    if (!cache.allProducts || !cache.lastUpdated || 
-        (now - cache.lastUpdated) > CACHE_DURATION) {
-      console.log("🔄 Оновлюємо кеш для категорії...");
-      
-      cache.allProducts = await loadProductsWithRetry();
-      cache.categorizedProducts = categorizeProducts(cache.allProducts);
-      cache.lastUpdated = now;
-    }
+    const products = await fetchProductsByCategory(category);
 
-    const products = cache.categorizedProducts[category] || [];
+    // Пагінація
     const pageNum = Math.max(1, parseInt(page));
     const limitNum = Math.max(1, parseInt(limit));
     const start = (pageNum - 1) * limitNum;
     const end = start + limitNum;
+
+    console.log(`📊 Товарів в категорії ${category}: ${products.length}`);
 
     res.json({
       success: true,
@@ -394,71 +305,58 @@ export const getProductsByCategory = async (req, res) => {
         showing: `${start + 1}-${Math.min(end, products.length)} з ${products.length}`
       },
       category: category,
-      fromCache: true,
-      totalProductsInCache: cache.allProducts?.length || 0
+      totalProducts: products.length
     });
+
   } catch (error) {
     console.error(`❌ Помилка при отриманні категорії ${category}:`, error);
     res.status(500).json({
       success: false,
-      error: `Помилка при отриманні категорії ${category}`,
+      error: `Помилка при завантаженні категорії ${category}`,
       details: error.message
     });
   }
 };
 
-// Функція для оновлення кешу
-export const refreshCache = async (req, res) => {
+// Функція для тестування API (корисно для діагностики)
+export const testAPI = async (req, res) => {
   try {
-    console.log("🔄 Примусове оновлення кешу...");
-    
-    cache.allProducts = await loadProductsWithRetry();
-    cache.categorizedProducts = categorizeProducts(cache.allProducts);
-    cache.lastUpdated = Date.now();
-    
-    const categoryStats = Object.entries(cache.categorizedProducts).map(([key, products]) => ({
-      category: key,
-      count: products.length
-    }));
-    
-    console.log(`✅ Кеш оновлено. Всього товарів: ${cache.allProducts.length}`);
-    
-    res.json({
-      success: true,
-      totalCount: cache.allProducts.length,
-      categories: categoryStats,
-      lastUpdated: new Date(cache.lastUpdated).toISOString()
-    });
-  } catch (error) {
-    console.error("❌ Помилка оновлення кешу:", error);
-    res.status(500).json({
-      success: false,
-      error: "Не вдалося оновити кеш",
-      details: error.message
-    });
-  }
-};
+    console.log("🔍 Тестування Prom.ua API");
 
-// Функція для отримання статистики кешу
-export const getCacheStats = async (req, res) => {
-  try {
-    const categoryStats = Object.entries(cache.categorizedProducts || {}).map(([key, products]) => ({
-      category: key,
-      count: products.length
-    }));
-    
+    // Тест базового запиту
+    const testResponse = await axios.get(
+      "https://my.prom.ua/api/v1/products/list",
+      {
+        headers: {
+          Authorization: `Bearer ${config.promApiToken}`,
+          "X-LANGUAGE": "uk",
+        },
+        params: { limit: 10 },
+        timeout: 15000,
+      }
+    );
+
+    const { products, last_id } = testResponse.data;
+
     res.json({
       success: true,
-      cacheExists: !!cache.allProducts,
-      totalProducts: cache.allProducts?.length || 0,
-      lastUpdated: cache.lastUpdated ? new Date(cache.lastUpdated).toISOString() : null,
-      cacheAge: cache.lastUpdated ? Date.now() - cache.lastUpdated : null,
-      categories: categoryStats
+      test: {
+        productsReceived: products?.length || 0,
+        hasLastId: !!last_id,
+        firstProduct: products?.[0] ? {
+          id: products[0].id,
+          name: products[0].name,
+          group_id: products[0].group?.id
+        } : null
+      },
+      categories: CATEGORY_GROUPS
     });
+
   } catch (error) {
+    console.error("❌ Помилка тестування API:", error);
     res.status(500).json({
       success: false,
-      error: "Помилка отримання статистики",
+      error: "Помилка тестування API",
       details: error.message
     });
   }
