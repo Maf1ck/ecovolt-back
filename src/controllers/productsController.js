@@ -10,7 +10,7 @@ const cache = {
 
 const CACHE_DURATION = 5 * 60 * 1000; // 5 хвилин
 
-// Мапа категорій з їх group_id (ці ID потрібно взяти з вашого Prom.ua)
+// Мапа категорій з їх group_id
 const CATEGORY_GROUPS = {
   'solar-panels': 97668952,
   'inverters': 130134486,
@@ -28,23 +28,24 @@ const CATEGORY_GROUPS = {
   'air-conditioners': 130300043
 };
 
-// Функція для завантаження товарів з API з покращеною логікою
+// Основна функція для завантаження товарів з покращеною логікою
 const fetchProducts = async (filter = null) => {
   let allProducts = [];
   let lastId = null;
   let hasMore = true;
   let requestCount = 0;
-  const maxRequests = 50; // Збільшили максимальну кількість запитів
+  const maxRequests = 200; // Збільшено максимальну кількість запитів
+  const requestLimit = 1000; // Максимальний ліміт на запит для Prom.ua
   
   console.log("🚀 Починаємо завантаження товарів");
   
   try {
     while (hasMore && requestCount < maxRequests) {
       requestCount++;
-      console.log(`📞 Запит #${requestCount}, lastId: ${lastId}`);
+      console.log(`📞 Запит #${requestCount}${lastId ? `, lastId: ${lastId}` : ''}`);
       
       const params = {
-        limit: 500,
+        limit: requestLimit, // Використовуємо максимальний ліміт
         ...(lastId && { last_id: lastId }),
       };
       
@@ -56,14 +57,13 @@ const fetchProducts = async (filter = null) => {
             "X-LANGUAGE": "uk",
           },
           params,
-          timeout: 30000, // 30 секунд таймаут
+          timeout: 45000, // Збільшено таймаут до 45 секунд
         }
       );
 
       const { products, last_id } = response.data;
       
       console.log(`📦 Отримано товарів: ${products?.length || 0}`);
-      console.log(`🔄 Новий last_id: ${last_id}`);
       
       if (products?.length > 0) {
         const filtered = filter ? products.filter(filter) : products;
@@ -71,29 +71,30 @@ const fetchProducts = async (filter = null) => {
         
         console.log(`✅ Додано товарів: ${filtered.length}, всього: ${allProducts.length}`);
         
-        // Перевіряємо умови для продовження
+        // Оновлена логіка для продовження завантаження
         if (!last_id) {
-          console.log("⚠️ last_id відсутній, припиняємо завантаження");
+          console.log("✅ last_id відсутній, досягнуто кінця");
           hasMore = false;
         } else if (last_id === lastId) {
-          console.log("⚠️ last_id не змінився, припиняємо завантаження");
+          console.log("⚠️ last_id не змінився, можливо досягнуто кінця");
           hasMore = false;
         } else {
           lastId = last_id;
           
-          // Якщо отримали менше товарів ніж максимум, можливо це останній запит
-          if (products.length < 500) {
-            console.log(`⚠️ Отримано менше товарів (${products.length}) ніж максимум (500)`);
+          // Якщо отримали менше товарів ніж ліміт, можливо це останній запит
+          if (products.length < requestLimit) {
+            console.log(`⚠️ Отримано ${products.length} товарів, менше ніж ліміт ${requestLimit}`);
+            // Не завершуємо тут, бо можуть бути ще товари
           }
         }
         
       } else {
-        console.log("❌ Товари відсутні або масив порожній, припиняємо завантаження");
+        console.log("❌ Товари відсутні, завершуємо завантаження");
         hasMore = false;
       }
 
-      // Затримка між запитами для уникнення перевантаження API
-      await new Promise(resolve => setTimeout(resolve, 150));
+      // Затримка між запитами для уникнення rate limit
+      await new Promise(resolve => setTimeout(resolve, 300)); // Збільшена затримка
     }
     
     if (requestCount >= maxRequests) {
@@ -113,16 +114,16 @@ const fetchProducts = async (filter = null) => {
   }
 };
 
-// Альтернативна функція з використанням offset (якщо last_id не працює)
+// Функція з offset методом як резервна опція
 const fetchProductsWithOffset = async (filter = null) => {
   let allProducts = [];
   let offset = 0;
   let hasMore = true;
-  const limit = 100; // Менший ліміт для стабільності
+  const limit = 1000; // Збільшено ліміт
   let requestCount = 0;
-  const maxRequests = 100;
+  const maxRequests = 50; // Менше запитів, але з більшим лімітом
   
-  console.log("🚀 Починаємо завантаження товарів з offset");
+  console.log("🚀 Починаємо завантаження товарів з offset (резервний метод)");
   
   try {
     while (hasMore && requestCount < maxRequests) {
@@ -140,7 +141,7 @@ const fetchProductsWithOffset = async (filter = null) => {
             limit: limit,
             offset: offset
           },
-          timeout: 30000,
+          timeout: 45000,
         }
       );
 
@@ -166,7 +167,7 @@ const fetchProductsWithOffset = async (filter = null) => {
         console.log("❌ Товари відсутні, завершуємо");
       }
 
-      await new Promise(resolve => setTimeout(resolve, 200));
+      await new Promise(resolve => setTimeout(resolve, 400)); // Збільшена затримка
     }
     
     console.log(`✅ Завантаження завершено. Всього товарів: ${allProducts.length}`);
@@ -174,6 +175,65 @@ const fetchProductsWithOffset = async (filter = null) => {
     
   } catch (error) {
     console.error("❌ Помилка при завантаженні з offset:", error.message);
+    throw error;
+  }
+};
+
+// Функція для пакетного завантаження (альтернативний підхід)
+const fetchProductsBatch = async (filter = null) => {
+  let allProducts = [];
+  let page = 1;
+  let hasMore = true;
+  const limit = 1000;
+  const maxPages = 100;
+  
+  console.log("🚀 Починаємо пакетне завантаження товарів");
+  
+  try {
+    while (hasMore && page <= maxPages) {
+      console.log(`📞 Завантажуємо сторінку ${page} з лімітом ${limit}`);
+      
+      const response = await axios.get(
+        "https://my.prom.ua/api/v1/products/list",
+        {
+          headers: {
+            Authorization: `Bearer ${config.promApiToken}`,
+            "X-LANGUAGE": "uk",
+          },
+          params: {
+            limit: limit,
+            offset: (page - 1) * limit
+          },
+          timeout: 45000,
+        }
+      );
+
+      const { products } = response.data;
+      
+      if (products?.length > 0) {
+        const filtered = filter ? products.filter(filter) : products;
+        allProducts = [...allProducts, ...filtered];
+        
+        console.log(`✅ Сторінка ${page}: отримано ${products.length}, загалом ${allProducts.length}`);
+        
+        if (products.length < limit) {
+          hasMore = false;
+          console.log("✅ Досягнуто кінця товарів");
+        } else {
+          page++;
+        }
+      } else {
+        hasMore = false;
+      }
+
+      await new Promise(resolve => setTimeout(resolve, 200));
+    }
+    
+    console.log(`✅ Пакетне завантаження завершено. Всього товарів: ${allProducts.length}`);
+    return allProducts;
+    
+  } catch (error) {
+    console.error("❌ Помилка при пакетному завантаженні:", error.message);
     throw error;
   }
 };
@@ -203,6 +263,33 @@ const categorizeProducts = (products) => {
   return categorized;
 };
 
+// Покращена функція завантаження з множинними спробами
+const loadProductsWithRetry = async (filter = null, maxAttempts = 3) => {
+  const methods = [
+    () => fetchProducts(filter),
+    () => fetchProductsWithOffset(filter),
+    () => fetchProductsBatch(filter)
+  ];
+  
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    for (let methodIndex = 0; methodIndex < methods.length; methodIndex++) {
+      try {
+        console.log(`🔄 Спроба ${attempt + 1}, метод ${methodIndex + 1}`);
+        const products = await methods[methodIndex]();
+        
+        if (products.length > 0) {
+          console.log(`✅ Успішно завантажено ${products.length} товарів методом ${methodIndex + 1}`);
+          return products;
+        }
+      } catch (error) {
+        console.error(`❌ Метод ${methodIndex + 1}, спроба ${attempt + 1} не вдалася:`, error.message);
+      }
+    }
+  }
+  
+  throw new Error("Всі методи завантаження товарів не вдалися");
+};
+
 // Отримання товарів з кешуванням
 export const getProducts = async (req, res) => {
   try {
@@ -214,14 +301,7 @@ export const getProducts = async (req, res) => {
         (now - cache.lastUpdated) > CACHE_DURATION) {
       console.log("🔄 Оновлюємо кеш...");
       
-      // Спробуємо спочатку основну функцію, потім альтернативну
-      try {
-        cache.allProducts = await fetchProducts();
-      } catch (error) {
-        console.log("⚠️ Основна функція не спрацювала, пробуємо з offset...");
-        cache.allProducts = await fetchProductsWithOffset();
-      }
-      
+      cache.allProducts = await loadProductsWithRetry();
       cache.categorizedProducts = categorizeProducts(cache.allProducts);
       cache.lastUpdated = now;
       
@@ -314,13 +394,7 @@ export const getProductsByCategory = async (req, res) => {
         (now - cache.lastUpdated) > CACHE_DURATION) {
       console.log("🔄 Оновлюємо кеш для категорії...");
       
-      try {
-        cache.allProducts = await fetchProducts();
-      } catch (error) {
-        console.log("⚠️ Основна функція не спрацювала, пробуємо з offset...");
-        cache.allProducts = await fetchProductsWithOffset();
-      }
-      
+      cache.allProducts = await loadProductsWithRetry();
       cache.categorizedProducts = categorizeProducts(cache.allProducts);
       cache.lastUpdated = now;
     }
@@ -361,14 +435,7 @@ export const refreshCache = async (req, res) => {
   try {
     console.log("🔄 Примусове оновлення кешу...");
     
-    // Спробуємо обидва методи
-    try {
-      cache.allProducts = await fetchProducts();
-    } catch (error) {
-      console.log("⚠️ Основна функція не спрацювала, пробуємо з offset...");
-      cache.allProducts = await fetchProductsWithOffset();
-    }
-    
+    cache.allProducts = await loadProductsWithRetry();
     cache.categorizedProducts = categorizeProducts(cache.allProducts);
     cache.lastUpdated = Date.now();
     
