@@ -22,10 +22,10 @@ router.post("/refresh-cache", strictLimiter, asyncHandler(refreshCache));
 router.delete("/cache", strictLimiter, asyncHandler(clearCache));
 
 // Маршрути для категорій (з базовим rate limiting)
-router.get("/category/:category", apiLimiter, asyncHandler(getProductsByCategory));
+router.get("/:category", apiLimiter, asyncHandler(getProductsByCategory));
 
 // Основні маршрути (параметризовані в кінці)
-router.get("", apiLimiter, asyncHandler(getProducts)); // Без слеша
+router.get("/", apiLimiter, asyncHandler(getProducts));
 router.get("/:id", apiLimiter, asyncHandler(getProductById));
 
 export default router;
