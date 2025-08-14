@@ -3,22 +3,29 @@ import {
   getProducts,
   getProductById,
   getProductsByCategory,
-  testAPI
+  testAPI,
+  refreshCache,
+  clearCache,
+  getProductsStats
 } from "../controllers/productsController.js";
+import { asyncHandler } from "../middleware/errorHandler.js";
+import { apiLimiter, strictLimiter } from "../middleware/rateLimiter.js";
 
 const router = express.Router();
 
-// ВАЖЛИВО: Специфічні маршрути повинні бути ПЕРЕД параметризованими маршрутами
-// Інакше /:id перехопить запити, призначені для /category/:category або /test
+// ВАЖЛИВО: Специфічні маршрути повинні бути ПЕРЕД параметризованими
+router.get("/test", apiLimiter, asyncHandler(testAPI));
+router.get("/stats", apiLimiter, asyncHandler(getProductsStats));
 
-// Тестовий маршрут для діагностики API
-router.get("/test", testAPI);
+// Адміністративні маршрути (з строгим rate limiting)
+router.post("/refresh-cache", strictLimiter, asyncHandler(refreshCache));
+router.delete("/cache", strictLimiter, asyncHandler(clearCache));
 
-// Маршрут для категорій
-router.get("/category/:category", getProductsByCategory);
+// Маршрути для категорій (з базовим rate limiting)
+router.get("/category/:category", apiLimiter, asyncHandler(getProductsByCategory));
 
 // Основні маршрути (параметризовані в кінці)
-router.get("/", getProducts);
-router.get("/:id", getProductById);
+router.get("/", apiLimiter, asyncHandler(getProducts));
+router.get("/:id", apiLimiter, asyncHandler(getProductById));
 
 export default router;
