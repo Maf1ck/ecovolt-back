@@ -80,6 +80,7 @@ app.get("/", (req, res) => {
       health: "/health",
       cors: "/cors-test",
       productsCount: "/products-count",
+      cacheStats: "/cache-stats",
       refreshCache: "/refresh-cache (POST)"
     },
     cors: {
@@ -109,8 +110,8 @@ app.get("/cors-test", (req, res) => {
 // Тестовий endpoint для перевірки кількості товарів
 app.get("/products-count", async (req, res) => {
   try {
-    const { getAllProducts } = await import('./controllers/productsController.js');
-    const products = getAllProducts();
+    const { cacheService } = await import('./services/cacheService.js');
+    const products = cacheService.getAllProducts();
     
     res.json({
       success: true,
@@ -137,8 +138,8 @@ app.post("/refresh-cache", async (req, res) => {
     const { updateCacheInBackground } = await import('./controllers/productsController.js');
     await updateCacheInBackground();
     
-    const { getAllProducts } = await import('./controllers/productsController.js');
-    const products = getAllProducts();
+    const { cacheService } = await import('./services/cacheService.js');
+    const products = cacheService.getAllProducts();
     
     res.json({
       success: true,
@@ -151,6 +152,39 @@ app.post("/refresh-cache", async (req, res) => {
     res.status(500).json({
       success: false,
       error: "Не вдалося оновити кеш",
+      details: error.message
+    });
+  }
+});
+
+// Endpoint для отримання детальної статистики кешу
+app.get("/cache-stats", async (req, res) => {
+  try {
+    const { cacheService } = await import('./services/cacheService.js');
+    const allProducts = cacheService.getAllProducts();
+    const cacheStatus = cacheService.getCacheStatus();
+    
+    // Статистика по категоріях
+    const categoryStats = {};
+    Object.keys(cacheService.categoryGroups).forEach(category => {
+      const products = cacheService.getCategoryProducts(category);
+      if (products.length > 0) {
+        categoryStats[category] = products.length;
+      }
+    });
+    
+    res.json({
+      success: true,
+      totalProducts: allProducts.length,
+      categories: categoryStats,
+      cacheStatus: cacheStatus,
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    logger.error("Помилка при отриманні статистики кешу:", error);
+    res.status(500).json({
+      success: false,
+      error: "Не вдалося отримати статистику кешу",
       details: error.message
     });
   }
