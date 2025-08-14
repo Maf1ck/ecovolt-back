@@ -514,6 +514,9 @@ export const getProductsStats = async (req, res) => {
     });
   }
 };
+// Експортуємо функцію для оновлення кешу
+export { updateCacheInBackground };
+
 export const getLoadingStats = async (req, res) => {
   try {
     const cacheStatus = cacheService.getDetailedStats();

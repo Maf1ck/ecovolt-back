@@ -78,7 +78,9 @@ app.get("/", (req, res) => {
       products: "/api/products",
       test: "/api/products/test",
       health: "/health",
-      cors: "/cors-test"
+      cors: "/cors-test",
+      productsCount: "/products-count",
+      refreshCache: "/refresh-cache (POST)"
     },
     cors: {
       origin: req.headers.origin,
@@ -102,6 +104,56 @@ app.get("/cors-test", (req, res) => {
       allowHeaders: res.getHeader('Access-Control-Allow-Headers')
     }
   });
+});
+
+// Тестовий endpoint для перевірки кількості товарів
+app.get("/products-count", async (req, res) => {
+  try {
+    const { getAllProducts } = await import('./controllers/productsController.js');
+    const products = getAllProducts();
+    
+    res.json({
+      success: true,
+      totalProducts: products.length,
+      message: `В кеші зберігається ${products.length} товарів`,
+      timestamp: new Date().toISOString(),
+      cacheStatus: "active"
+    });
+  } catch (error) {
+    logger.error("Помилка при отриманні кількості товарів:", error);
+    res.status(500).json({
+      success: false,
+      error: "Не вдалося отримати кількість товарів",
+      details: error.message
+    });
+  }
+});
+
+// Endpoint для примусового оновлення кешу
+app.post("/refresh-cache", async (req, res) => {
+  try {
+    logger.info("🔄 Запит на примусове оновлення кешу");
+    
+    const { updateCacheInBackground } = await import('./controllers/productsController.js');
+    await updateCacheInBackground();
+    
+    const { getAllProducts } = await import('./controllers/productsController.js');
+    const products = getAllProducts();
+    
+    res.json({
+      success: true,
+      message: "Кеш оновлено успішно",
+      totalProducts: products.length,
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    logger.error("Помилка при оновленні кешу:", error);
+    res.status(500).json({
+      success: false,
+      error: "Не вдалося оновити кеш",
+      details: error.message
+    });
+  }
 });
 
 // Базовий health check endpoint
