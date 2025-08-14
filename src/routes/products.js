@@ -6,7 +6,8 @@
     testAPI,
     refreshCache,
     clearCache,
-    getProductsStats
+    getProductsStats,
+    getLoadingStats
 } from "../controllers/productsController.js";
 import { asyncHandler } from "../middleware/errorHandler.js";
 import { apiLimiter, strictLimiter } from "../middleware/rateLimiter.js";
