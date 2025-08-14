@@ -110,5 +110,13 @@ const startServer = async () => {
     process.exit(1);
   }
 };
-
+app.get("/", (req, res) => {
+  res.json({ 
+    message: "EcoVolt API is running", 
+    endpoints: {
+      products: "/api/products",
+      test: "/api/products/test"
+    }
+  });
+});
 startServer();
