@@ -92,7 +92,7 @@ export const initializeCache = async () => {
  */
 const createPaginationResponse = (products, page, limit, category = null) => {
   const pageNum = Math.max(1, parseInt(page) || 1);
-  const limitNum = Math.max(1, Math.min(50, parseInt(limit) || 8));
+  const limitNum = Math.max(1, Math.min(200, parseInt(limit) || 8)); // Збільшено максимальний ліміт до 200
   const start = (pageNum - 1) * limitNum;
   const end = start + limitNum;
 
@@ -205,11 +205,21 @@ export const getProducts = async (req, res) => {
 
   } catch (error) {
     logger.error("❌ Помилка в getProducts:", error);
+    
+    // Додаткова інформація про помилку
+    const errorDetails = {
+      message: error.message,
+      stack: process.env.NODE_ENV === 'development' ? error.stack : undefined,
+      timestamp: new Date().toISOString(),
+      cacheStatus: cacheService.getCacheStatus()
+    };
+    
     res.status(500).json({
       success: false,
       error: "Помилка сервера при завантаженні товарів",
       details: error.message,
-      cacheStatus: cacheService.getCacheStatus()
+      cacheStatus: cacheService.getCacheStatus(),
+      debug: errorDetails
     });
   }
 };
@@ -282,6 +292,48 @@ export const getProductById = async (req, res) => {
         details: error.message
       });
     }
+  }
+};
+
+/**
+ * Тестування завантаження товарів (для діагностики)
+ */
+export const testProductLoading = async (req, res) => {
+  try {
+    logger.info("🧪 Тестування завантаження товарів");
+    
+    // Тестуємо з'єднання з Prom.ua API
+    const apiTest = await promService.testConnection();
+    
+    if (!apiTest.success) {
+      return res.status(503).json({
+        success: false,
+        error: "API недоступний",
+        details: apiTest.message
+      });
+    }
+    
+    // Спробуємо завантажити кілька товарів для тесту
+    const testProducts = await promService.fetchAllProducts();
+    
+    res.json({
+      success: true,
+      message: "Тест завантаження пройшов успішно",
+      api: apiTest,
+      products: {
+        count: testProducts.length,
+        sample: testProducts.slice(0, 3) // Перші 3 товари для прикладу
+      },
+      timestamp: new Date().toISOString()
+    });
+    
+  } catch (error) {
+    logger.error("❌ Помилка тестування завантаження:", error);
+    res.status(500).json({
+      success: false,
+      error: "Помилка тестування завантаження",
+      details: error.message
+    });
   }
 };
 
@@ -378,6 +430,42 @@ export const clearCache = async (req, res) => {
     res.status(500).json({
       success: false,
       error: "Не вдалося очистити кеш",
+      details: error.message
+    });
+  }
+};
+
+/**
+ * Отримання всіх товарів без пагінації (для експорту або адміністрації)
+ */
+export const getAllProductsRaw = async (req, res) => {
+  try {
+    logger.info("🔍 Запит всіх товарів без пагінації");
+    
+    const products = cacheService.getAllProducts();
+    
+    if (products.length === 0) {
+      return res.status(503).json({
+        success: false,
+        error: "Товари тимчасово недоступні",
+        cacheStatus: cacheService.getCacheStatus()
+      });
+    }
+    
+    res.json({
+      success: true,
+      products: products,
+      total: products.length,
+      fromCache: true,
+      cacheAge: cacheService.getCacheAge(),
+      cacheStatus: cacheService.getCacheStatus()
+    });
+    
+  } catch (error) {
+    logger.error("❌ Помилка отримання всіх товарів:", error);
+    res.status(500).json({
+      success: false,
+      error: "Помилка сервера",
       details: error.message
     });
   }

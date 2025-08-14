@@ -40,6 +40,23 @@ export const errorHandler = (err, req, res, next) => {
     });
   }
 
+  // Помилка з'єднання з зовнішнім API
+  if (err.code === 'ECONNREFUSED' || err.code === 'ENOTFOUND') {
+    return res.status(503).json({
+      success: false,
+      error: "Зовнішній сервіс недоступний",
+      details: process.env.NODE_ENV === 'development' ? err.message : undefined
+    });
+  }
+
+  // Помилка обмеження швидкості
+  if (err.status === 429) {
+    return res.status(429).json({
+      success: false,
+      error: "Забагато запитів. Спробуйте пізніше"
+    });
+  }
+
   // Загальна помилка сервера
   res.status(err.status || 500).json({
     success: false,

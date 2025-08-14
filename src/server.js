@@ -44,7 +44,7 @@ app.use(
 // CORS налаштування - ВИПРАВЛЕНО
 app.use(cors({
   origin: process.env.NODE_ENV === 'production' 
-    ? ['https://your-frontend-domain.com'] // Замініть на ваш реальний домен
+    ? ['https://ecovolt-front.vercel.app', 'https://ecovolt-frontend.vercel.app'] // Оновлено на реальні домени
     : ['http://localhost:5173', 'http://localhost:3000', 'http://127.0.0.1:5173'],
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'HEAD'],
@@ -52,14 +52,13 @@ app.use(cors({
     'Content-Type', 
     'Authorization', 
     'X-Requested-With',
-    'Cache-Control', // ДОДАНО
+    'Cache-Control',
     'Accept',
     'Origin',
     'User-Agent',
     'DNT',
     'If-Modified-Since',
-    'Keep-Alive',
-    'X-Requested-With'
+    'Keep-Alive'
   ],
   exposedHeaders: ['Content-Length', 'X-JSON'],
   preflightContinue: false,

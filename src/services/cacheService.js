@@ -131,22 +131,37 @@ class CacheService {
    * Оновлює кеш новими продуктами
    */
   updateCache(products) {
+    if (!Array.isArray(products)) {
+      logger.error("❌ Помилка: products має бути масивом");
+      throw new Error("Invalid products data: expected array");
+    }
+    
+    if (products.length === 0) {
+      logger.warn("⚠️ Отримано порожній масив товарів");
+    }
+    
     logger.info(`🔄 Оновлення кешу з ${products.length} продуктами`);
     
-    // Категоризуємо продукти
-    const categories = this.categorizeProducts(products);
-    
-    // Атомарне оновлення кешу
-    this.cache.products = {
-      all: products,
-      categories,
-      lastUpdate: Date.now(),
-      isUpdating: false,
-      updatePromise: null
-    };
+    try {
+      // Категоризуємо продукти
+      const categories = this.categorizeProducts(products);
+      
+      // Атомарне оновлення кешу
+      this.cache.products = {
+        all: products,
+        categories,
+        lastUpdate: Date.now(),
+        isUpdating: false,
+        updatePromise: null
+      };
 
-    logger.info(`✅ Кеш оновлено успішно. Товарів: ${products.length}`);
-    this.logCacheStatus();
+      logger.info(`✅ Кеш оновлено успішно. Товарів: ${products.length}`);
+      this.logCacheStatus();
+      
+    } catch (error) {
+      logger.error("❌ Помилка оновлення кешу:", error);
+      throw error;
+    }
   }
 
   /**

@@ -66,7 +66,7 @@ class PromService {
     let hasMore = true;
     let requestCount = 0;
     const limit = 100; // Максимальний ліміт Prom.ua
-    const maxRequests = 1000; // Безпечний ліміт запитів
+    const maxRequests = 10000; // Збільшено ліміт запитів для отримання всіх товарів
 
     try {
       while (hasMore && requestCount < maxRequests) {
@@ -155,7 +155,19 @@ class PromService {
         return this.removeDuplicates(allProducts);
       }
       
-      throw new Error(`Не вдалося завантажити товари: ${error.message}`);
+      // Додаткова інформація про помилку
+      const errorDetails = {
+        message: error.message,
+        status: error.response?.status,
+        statusText: error.response?.statusText,
+        data: error.response?.data,
+        requestCount,
+        productsLoaded: allProducts.length
+      };
+      
+      logger.error("🔍 Деталі помилки:", errorDetails);
+      
+      throw new Error(`Не вдалося завантажити товари: ${error.message}. Запитів: ${requestCount}, завантажено: ${allProducts.length}`);
     }
   }
 
@@ -239,12 +251,24 @@ class PromService {
     } catch (error) {
       logger.error(`❌ Помилка завантаження категорії ${groupId}:`, error);
       
+      // Додаткова інформація про помилку
+      const errorDetails = {
+        groupId,
+        message: error.message,
+        status: error.response?.status,
+        statusText: error.response?.statusText,
+        requestCount,
+        productsLoaded: categoryProducts.length
+      };
+      
+      logger.error("🔍 Деталі помилки категорії:", errorDetails);
+      
       if (categoryProducts.length > 0) {
         logger.warn(`⚠️ Повертаємо частково завантажені товари категорії: ${categoryProducts.length}`);
         return this.removeDuplicates(categoryProducts);
       }
       
-      throw new Error(`Не вдалося завантажити категорію ${groupId}: ${error.message}`);
+      throw new Error(`Не вдалося завантажити категорію ${groupId}: ${error.message}. Запитів: ${requestCount}, завантажено: ${categoryProducts.length}`);
     }
   }
 

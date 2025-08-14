@@ -4,9 +4,11 @@ import {
   getProductById,
   getProductsByCategory,
   testAPI,
+  testProductLoading,
   refreshCache,
   clearCache,
-  getProductsStats
+  getProductsStats,
+  getAllProductsRaw
 } from "../controllers/productsController.js";
 import { asyncHandler } from "../middleware/errorHandler.js";
 import { apiLimiter, strictLimiter } from "../middleware/rateLimiter.js";
@@ -18,7 +20,9 @@ const router = express.Router();
 
 // 1. Специфічні маршрути (без параметрів)
 router.get("/test", apiLimiter, asyncHandler(testAPI));
+router.get("/test-loading", apiLimiter, asyncHandler(testProductLoading)); // Тест завантаження товарів
 router.get("/stats", apiLimiter, asyncHandler(getProductsStats));
+router.get("/all", apiLimiter, asyncHandler(getAllProductsRaw)); // Новий endpoint для всіх товарів
 
 // 2. Адміністративні маршрути
 router.post("/refresh-cache", strictLimiter, asyncHandler(refreshCache));
