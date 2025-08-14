@@ -1,12 +1,12 @@
-import express from "express";
-import { 
-  getProducts,
-  getProductById,
-  getProductsByCategory,
-  testAPI,
-  refreshCache,
-  clearCache,
-  getProductsStats
+  import express from "express";
+  import { 
+    getProducts,
+    getProductById,
+    getProductsByCategory,
+    testAPI,
+    refreshCache,
+    clearCache,
+    getProductsStats
 } from "../controllers/productsController.js";
 import { asyncHandler } from "../middleware/errorHandler.js";
 import { apiLimiter, strictLimiter } from "../middleware/rateLimiter.js";
