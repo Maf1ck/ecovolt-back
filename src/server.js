@@ -267,7 +267,8 @@ app.get("/prom-stats", async (req, res) => {
   try {
     logger.info("🔍 Запит статистики Prom.ua профілю");
     
-    const { promService } = await import('./services/promService.js');
+    const promServiceModule = await import('./services/promService.js');
+    const promService = promServiceModule.default;
     
     // Тестуємо з'єднання з API
     const connectionTest = await promService.testConnection();
