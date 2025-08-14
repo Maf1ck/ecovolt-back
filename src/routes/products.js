@@ -25,7 +25,7 @@ router.delete("/cache", strictLimiter, asyncHandler(clearCache));
 router.get("/category/:category", apiLimiter, asyncHandler(getProductsByCategory));
 
 // Основні маршрути (параметризовані в кінці)
-router.get("/", apiLimiter, asyncHandler(getProducts));
+router.get("", apiLimiter, asyncHandler(getProducts)); // Без слеша
 router.get("/:id", apiLimiter, asyncHandler(getProductById));
 
 export default router;
