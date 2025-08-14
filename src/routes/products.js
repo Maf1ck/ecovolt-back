@@ -28,7 +28,7 @@ router.delete("/cache", strictLimiter, asyncHandler(clearCache));
 router.get("/category/:category", apiLimiter, asyncHandler(getProductsByCategory));
 
 // 4. Товар за ID (з regex для перевірки що це число)
-router.get("/product/:id(\\d+)", apiLimiter, asyncHandler(getProductById));
+router.get("/product/:id(\\\\d+)", apiLimiter, asyncHandler(getProductById));
 
 // 5. Головний маршрут для всіх товарів (БЕЗ СЛЕШУ в кінці)
 router.get("", apiLimiter, asyncHandler(getProducts));
