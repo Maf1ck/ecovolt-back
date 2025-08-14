@@ -12,18 +12,17 @@ const app = express();
 // Логування запитів
 app.use((req, res, next) => {
   const start = Date.now();
-  
-  // Логування після завершення запиту
+
   res.on('finish', () => {
     const duration = Date.now() - start;
     const status = res.statusCode;
     const method = req.method;
     const url = req.originalUrl;
     const ip = req.ip;
-    
+
     logger.info(`${method} ${url} ${status} ${duration}ms - ${ip}`);
   });
-  
+
   next();
 });
 
@@ -44,8 +43,8 @@ app.use(
 // CORS налаштування
 app.use(cors({
   origin: process.env.NODE_ENV === 'production' 
-    ? ['https://your-frontend-domain.com'] // Замініть на ваш домен
-    : true, // В dev режимі дозволяємо всі origins
+    ? ['https://ecovolt-back.onrender.com'] // Замініть на ваш домен
+    : true,
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
@@ -68,23 +67,21 @@ app.get('/health', (req, res) => {
 // API маршрути
 app.use("/api/products", productsRouter);
 
-// Обробка неіснуючих маршрутів
-app.use('*', notFoundHandler);
+// Обробка неіснуючих маршрутів (без '*', щоб уникнути помилки path-to-regexp)
+app.use(notFoundHandler);
 
-// Централізована обробка помилок (має бути останньою)
+// Централізована обробка помилок
 app.use(errorHandler);
 
 // Graceful shutdown
 const gracefulShutdown = (signal) => {
   logger.info(`Отримано сигнал ${signal}. Виконуємо graceful shutdown...`);
-  
   process.exit(0);
 };
 
 process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
 process.on('SIGINT', () => gracefulShutdown('SIGINT'));
 
-// Обробка неперехоплених помилок
 process.on('unhandledRejection', (reason, promise) => {
   logger.error('Unhandled Rejection at:', promise, 'reason:', reason);
 });
@@ -98,23 +95,20 @@ process.on('uncaughtException', (error) => {
 const startServer = async () => {
   try {
     logger.info("🚀 Запуск сервера EcoVolt...");
-    
-    // Ініціалізуємо кеш продуктів
+
     await initializeCache();
-    
-    // Запускаємо HTTP сервер
+
     app.listen(config.port, () => {
       logger.info(`✅ Сервер запущено на порту ${config.port}`);
       logger.info(`🌍 Environment: ${process.env.NODE_ENV || 'development'}`);
       logger.info(`📊 Health check: http://localhost:${config.port}/health`);
       logger.info(`🛠️ API test: http://localhost:${config.port}/api/products/test`);
     });
-    
+
   } catch (error) {
     logger.error("❌ Критична помилка запуску сервера:", error);
     process.exit(1);
   }
 };
 
-// Запускаємо сервер
 startServer();
