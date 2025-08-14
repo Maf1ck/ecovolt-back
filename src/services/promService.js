@@ -5,7 +5,7 @@ import logger from "../utils/logger.js";
 class PromService {
   constructor() {
     this.baseURL = "https://my.prom.ua/api/v1";
-    this.requestDelay = 200; // Затримка між запитами (мс)
+    this.requestDelay = 300; // Збільшили затримку
     this.maxRetries = 3;
     this.timeout = 30000;
   }
@@ -54,8 +54,8 @@ class PromService {
   }
 
   /**
-   * ГОЛОВНА ФУНКЦІЯ: Завантажує ВСІ товари з Prom.ua API
-   * Вирішує проблему ліміту 100 товарів за запит
+   * ВИПРАВЛЕНА ФУНКЦІЯ: Завантажує ВСІ товари з Prom.ua API
+   * Використовує пагінацію для отримання всіх товарів понад 100
    */
   async fetchAllProducts() {
     logger.info("🚀 Початок завантаження всіх товарів з Prom.ua");
@@ -76,16 +76,30 @@ class PromService {
 
         // Виконуємо запит з повтореннями
         const response = await this.retryRequest(async () => {
+          const params = {
+            limit,
+            // ВАЖЛИВО: додаємо last_id тільки якщо він є
+            ...(lastId && { last_id: lastId }),
+          };
+          
+          logger.debug(`📡 Параметри запиту:`, params);
+          
           return await client.get('/products/list', {
-            params: {
-              limit,
-              ...(lastId && { last_id: lastId }),
-            }
+            params: params
           });
         });
 
-        const { products, last_id } = response.data;
+        const responseData = response.data;
+        logger.debug(`📋 Структура відповіді:`, {
+          hasProducts: !!responseData.products,
+          productsCount: responseData.products?.length,
+          hasLastId: !!responseData.last_id,
+          lastIdValue: responseData.last_id
+        });
 
+        const { products, last_id } = responseData;
+
+        // Перевіряємо чи є товари
         if (!products || products.length === 0) {
           logger.info("✅ Немає більше товарів для завантаження");
           hasMore = false;
@@ -96,19 +110,24 @@ class PromService {
         allProducts.push(...products);
         logger.info(`📦 Завантажено ${products.length} товарів. Всього: ${allProducts.length}`);
 
-        // Перевіряємо чи є ще товари
-        if (!last_id || last_id === lastId) {
-          logger.info("✅ Досягнуто кінець списку товарів");
+        // Перевіряємо умови завершення
+        if (!last_id) {
+          logger.info("✅ Досягнуто кінець списку товарів (немає last_id)");
+          hasMore = false;
+        } else if (last_id === lastId) {
+          logger.info("✅ Досягнуто кінець списку товарів (last_id не змінився)");
           hasMore = false;
         } else {
+          // Оновлюємо last_id для наступного запиту
           lastId = last_id;
+          logger.debug(`🔄 Наступний last_id: ${lastId}`);
           
-          // Затримка між запитами щоб не перевантажити API
+          // Затримка між запитами
           await this.delay();
         }
 
-        // Логування прогресу кожні 10 запитів
-        if (requestCount % 10 === 0) {
+        // Логування прогресу кожні 5 запитів
+        if (requestCount % 5 === 0) {
           logger.info(`📊 Прогрес: ${requestCount} запитів, ${allProducts.length} товарів`);
         }
       }
@@ -118,7 +137,14 @@ class PromService {
       }
 
       logger.info(`🏁 Завантаження завершено. Всього товарів: ${allProducts.length}`);
-      return allProducts;
+      
+      // Додаткова перевірка на дублікати
+      const uniqueProducts = this.removeDuplicates(allProducts);
+      if (uniqueProducts.length !== allProducts.length) {
+        logger.warn(`⚠️ Видалено ${allProducts.length - uniqueProducts.length} дублікатів`);
+      }
+      
+      return uniqueProducts;
 
     } catch (error) {
       logger.error("❌ Критична помилка при завантаженні товарів:", error);
@@ -126,7 +152,7 @@ class PromService {
       // Якщо маємо хоча б частину товарів, повертаємо їх
       if (allProducts.length > 0) {
         logger.warn(`⚠️ Повертаємо частково завантажені товари: ${allProducts.length}`);
-        return allProducts;
+        return this.removeDuplicates(allProducts);
       }
       
       throw new Error(`Не вдалося завантажити товари: ${error.message}`);
@@ -134,7 +160,21 @@ class PromService {
   }
 
   /**
-   * Завантажує товари конкретної категорії
+   * Видаляє дублікати товарів за ID
+   */
+  removeDuplicates(products) {
+    const seen = new Set();
+    return products.filter(product => {
+      if (seen.has(product.id)) {
+        return false;
+      }
+      seen.add(product.id);
+      return true;
+    });
+  }
+
+  /**
+   * ВИПРАВЛЕНА ФУНКЦІЯ: Завантажує товари конкретної категорії
    */
   async fetchProductsByCategory(groupId) {
     if (!groupId) {
@@ -150,21 +190,23 @@ class PromService {
     let hasMore = true;
     let requestCount = 0;
     const limit = 100;
-    const maxRequests = 200; // Менший ліміт для категорій
+    const maxRequests = 500; // Менший ліміт для категорій
 
     try {
       while (hasMore && requestCount < maxRequests) {
         requestCount++;
         
-        logger.info(`📞 Запит #${requestCount} для group_id ${groupId}`);
+        logger.info(`📞 Запит #${requestCount} для group_id ${groupId}${lastId ? `, last_id: ${lastId}` : ''}`);
 
         const response = await this.retryRequest(async () => {
+          const params = {
+            limit,
+            group_id: groupId,
+            ...(lastId && { last_id: lastId }),
+          };
+          
           return await client.get('/products/list', {
-            params: {
-              limit,
-              group_id: groupId,
-              ...(lastId && { last_id: lastId }),
-            }
+            params: params
           });
         });
 
@@ -189,14 +231,17 @@ class PromService {
       }
 
       logger.info(`🏁 Категорія ${groupId} завантажена. Товарів: ${categoryProducts.length}`);
-      return categoryProducts;
+      
+      // Видаляємо дублікати
+      const uniqueProducts = this.removeDuplicates(categoryProducts);
+      return uniqueProducts;
 
     } catch (error) {
       logger.error(`❌ Помилка завантаження категорії ${groupId}:`, error);
       
       if (categoryProducts.length > 0) {
         logger.warn(`⚠️ Повертаємо частково завантажені товари категорії: ${categoryProducts.length}`);
-        return categoryProducts;
+        return this.removeDuplicates(categoryProducts);
       }
       
       throw new Error(`Не вдалося завантажити категорію ${groupId}: ${error.message}`);
@@ -266,23 +311,31 @@ class PromService {
   }
 
   /**
-   * Отримує статистику API (кількість товарів і т.д.)
+   * Отримує статистику API
    */
   async getAPIStats() {
     logger.info("📊 Отримання статистики API");
     
     try {
+      // Тестуємо з'єднання
       const testResult = await this.testConnection();
       
       if (!testResult.success) {
         throw new Error(testResult.message);
       }
 
-      // Можна додати інші статистичні дані тут
+      // Отримуємо кілька товарів для статистики
+      const client = this.createClient();
+      const response = await client.get('/products/list', {
+        params: { limit: 10 }
+      });
+
       return {
         apiStatus: "OK",
         timestamp: new Date().toISOString(),
-        sampleProduct: testResult.sampleProduct
+        sampleProducts: response.data.products?.length || 0,
+        hasLastId: !!response.data.last_id,
+        sampleProduct: response.data.products?.[0] || null
       };
 
     } catch (error) {

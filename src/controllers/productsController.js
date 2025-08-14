@@ -15,13 +15,35 @@ const updateCacheInBackground = async () => {
     cacheService.setUpdating(true);
     logger.info("🔄 Початок фонового оновлення кешу...");
 
+    // Спочатку тестуємо з'єднання
+    const testResult = await promService.testConnection();
+    if (!testResult.success) {
+      throw new Error(`API недоступний: ${testResult.message}`);
+    }
+
     // Завантажуємо всі товари з Prom.ua API
+    logger.info("📡 Запуск завантаження всіх товарів...");
     const products = await promService.fetchAllProducts();
     
+    if (!products || products.length === 0) {
+      throw new Error("Не отримано жодного товару з API");
+    }
+
     // Оновлюємо кеш
     cacheService.updateCache(products);
     
     logger.info(`✅ Фонове оновлення завершено успішно: ${products.length} товарів`);
+
+    // Детальна статистика по категоріях
+    const categoryStats = {};
+    Object.keys(cacheService.categoryGroups).forEach(category => {
+      const categoryProducts = cacheService.getCategoryProducts(category);
+      if (categoryProducts.length > 0) {
+        categoryStats[category] = categoryProducts.length;
+      }
+    });
+
+    logger.info(`📊 Статистика по категоріях:`, categoryStats);
 
   } catch (error) {
     logger.error("❌ Помилка фонового оновлення кешу:", error);
@@ -30,6 +52,8 @@ const updateCacheInBackground = async () => {
     if (cacheService.getAllProducts().length === 0) {
       logger.error("🚨 КРИТИЧНО: Немає кешованих товарів і оновлення не вдалося!");
     }
+    
+    throw error; // Пробрасываем ошибку дальше
   } finally {
     cacheService.setUpdating(false);
   }
@@ -67,14 +91,26 @@ export const initializeCache = async () => {
  * Допоміжна функція для створення відповіді з пагінацією
  */
 const createPaginationResponse = (products, page, limit, category = null) => {
-  const pageNum = Math.max(1, parseInt(page));
-  const limitNum = Math.max(1, Math.min(50, parseInt(limit))); // Максимум 50
+  const pageNum = Math.max(1, parseInt(page) || 1);
+  const limitNum = Math.max(1, Math.min(50, parseInt(limit) || 8));
   const start = (pageNum - 1) * limitNum;
   const end = start + limitNum;
 
-  const paginatedProducts = products.slice(start, end);
-  const totalPages = Math.ceil(products.length / limitNum);
-  const hasMore = end < products.length;
+  // ВАЖЛИВО: сортуємо товари для консистентності
+  const sortedProducts = [...products].sort((a, b) => {
+    // Сортуємо за ID для стабільної пагінації
+    return parseInt(a.id) - parseInt(b.id);
+  });
+
+  const paginatedProducts = sortedProducts.slice(start, end);
+  const totalPages = Math.ceil(sortedProducts.length / limitNum);
+  const hasMore = end < sortedProducts.length;
+
+  // Детальна інформація про пагінацію
+  const showingStart = Math.min(start + 1, sortedProducts.length);
+  const showingEnd = Math.min(end, sortedProducts.length);
+  
+  logger.info(`📄 Пагінація: сторінка ${pageNum}/${totalPages}, показано ${showingStart}-${showingEnd} з ${sortedProducts.length}`);
 
   return {
     success: true,
@@ -83,17 +119,25 @@ const createPaginationResponse = (products, page, limit, category = null) => {
       page: pageNum,
       limit: limitNum,
       totalPages,
-      totalItems: products.length,
+      totalItems: sortedProducts.length,
       hasMore,
-      showing: `${start + 1}-${Math.min(end, products.length)} з ${products.length}`
+      showing: `${showingStart}-${showingEnd} з ${sortedProducts.length}`,
+      // Додаткова інформація для фронтенду
+      startItem: showingStart,
+      endItem: showingEnd
     },
     category: category,
     fromCache: true,
     cacheAge: cacheService.getCacheAge(),
-    cacheStatus: cacheService.getCacheStatus()
+    cacheStatus: cacheService.getCacheStatus(),
+    debug: {
+      originalProductsCount: products.length,
+      sortedProductsCount: sortedProducts.length,
+      requestedPage: pageNum,
+      requestedLimit: limitNum
+    }
   };
 };
-
 /**
  * ГОЛОВНИЙ ENDPOINT: Отримання всіх товарів або товарів за категорією
  */
@@ -105,35 +149,51 @@ export const getProducts = async (req, res) => {
 
     // Запускаємо оновлення кешу у фоні якщо потрібно (не чекаємо)
     if (cacheService.shouldUpdateCache() && !cacheService.cache.products.isUpdating) {
-      updateCacheInBackground();
+      logger.info("🔄 Запускаємо фонове оновлення кешу...");
+      updateCacheInBackground().catch(error => {
+        logger.error("❌ Помилка фонового оновлення:", error);
+      });
     }
 
     let products;
+    let productsSource = '';
 
     if (category && cacheService.categoryExists(category)) {
       // Отримуємо товари конкретної категорії
       products = cacheService.getCategoryProducts(category);
+      productsSource = `категорії ${category}`;
       logger.info(`📂 Використано кешовані товари категорії ${category}: ${products.length}`);
     } else {
       // Отримуємо всі товари
       products = cacheService.getAllProducts();
+      productsSource = 'всі товари';
       logger.info(`📦 Використано всі кешовані товари: ${products.length}`);
     }
 
-    // Якщо немає товарів і кеш не оновлюється - повертаємо помилку
-    if (products.length === 0 && !cacheService.cache.products.isUpdating) {
-      return res.status(503).json({
-        success: false,
-        error: "Товари тимчасово недоступні. Спробуйте пізніше.",
-        isUpdating: cacheService.cache.products.isUpdating,
-        cacheStatus: cacheService.getCacheStatus()
-      });
-    }
-
-    // Якщо товарів немає але кеш оновлюється - чекаємо трохи
-    if (products.length === 0 && cacheService.cache.products.isUpdating) {
-      await cacheService.waitForUpdate(10000); // Чекаємо максимум 10 секунд
-      products = category ? cacheService.getCategoryProducts(category) : cacheService.getAllProducts();
+    // Якщо немає товарів і кеш не оновлюється
+    if (products.length === 0) {
+      if (!cacheService.cache.products.isUpdating) {
+        logger.warn("⚠️ Немає товарів в кеші, спробуємо завантажити");
+        
+        try {
+          // Спробуємо завантажити товари синхронно
+          await updateCacheInBackground();
+          products = category ? cacheService.getCategoryProducts(category) : cacheService.getAllProducts();
+        } catch (error) {
+          logger.error("❌ Не вдалося завантажити товари:", error);
+        }
+      }
+      
+      // Якщо все ще немає товарів
+      if (products.length === 0) {
+        return res.status(503).json({
+          success: false,
+          error: "Товари тимчасово недоступні. Спробуйте пізніше.",
+          isUpdating: cacheService.cache.products.isUpdating,
+          cacheStatus: cacheService.getCacheStatus(),
+          details: `Не знайдено товарів для: ${productsSource}`
+        });
+      }
     }
 
     // Створюємо відповідь з пагінацією
@@ -148,10 +208,12 @@ export const getProducts = async (req, res) => {
     res.status(500).json({
       success: false,
       error: "Помилка сервера при завантаженні товарів",
-      details: error.message
+      details: error.message,
+      cacheStatus: cacheService.getCacheStatus()
     });
   }
 };
+
 
 /**
  * Отримання товарів за категорією (окремий endpoint)
@@ -360,6 +422,53 @@ export const getProductsStats = async (req, res) => {
     res.status(500).json({
       success: false,
       error: "Не вдалося отримати статистику",
+      details: error.message
+    });
+  }
+};
+export const getLoadingStats = async (req, res) => {
+  try {
+    const cacheStatus = cacheService.getDetailedStats();
+    const allProducts = cacheService.getAllProducts();
+    
+    // Статистика по категоріях
+    const categoryStats = {};
+    Object.keys(cacheService.categoryGroups).forEach(category => {
+      const products = cacheService.getCategoryProducts(category);
+      if (products.length > 0) {
+        categoryStats[category] = {
+          count: products.length,
+          groupId: cacheService.getCategoryGroupId(category),
+          firstProduct: products[0]?.name || 'N/A'
+        };
+      }
+    });
+
+    // Тестуємо API
+    const apiTest = await promService.testConnection();
+
+    res.json({
+      success: true,
+      api: apiTest,
+      cache: cacheStatus,
+      products: {
+        total: allProducts.length,
+        categories: categoryStats,
+        lastUpdate: cacheStatus.cache.lastUpdate,
+        sampleProduct: allProducts[0] || null
+      },
+      server: {
+        uptime: process.uptime(),
+        memory: process.memoryUsage(),
+        timestamp: new Date().toISOString()
+      }
+    });
+
+  } catch (error) {
+    logger.error("❌ Помилка отримання статистики завантаження:", error);
+    res.status(500).json({
+      success: false,
+      error: "Помилка отримання статистики",
       details: error.message
     });
   }

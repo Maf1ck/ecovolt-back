@@ -16,6 +16,8 @@ const router = express.Router();
 // ВАЖЛИВО: Специфічні маршрути повинні бути ПЕРЕД параметризованими
 router.get("/test", apiLimiter, asyncHandler(testAPI));
 router.get("/stats", apiLimiter, asyncHandler(getProductsStats));
+router.get("/loading-stats", apiLimiter, asyncHandler(getLoadingStats));
+
 
 // Адміністративні маршрути (з строгим rate limiting)
 router.post("/refresh-cache", strictLimiter, asyncHandler(refreshCache));
