@@ -43,7 +43,7 @@ app.use(
 // CORS налаштування
 app.use(cors({
   origin: process.env.NODE_ENV === 'production' 
-    ? ['https://ecovolt-back.onrender.com'] // Замініть на ваш домен
+    ? ['http://localhost:5173', 'https://ecovolt-back.onrender.com']
     : true,
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
