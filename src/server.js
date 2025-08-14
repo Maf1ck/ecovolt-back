@@ -110,7 +110,8 @@ app.get("/cors-test", (req, res) => {
 // Тестовий endpoint для перевірки кількості товарів
 app.get("/products-count", async (req, res) => {
   try {
-    const { cacheService } = await import('./services/cacheService.js');
+    const cacheServiceModule = await import('./services/cacheService.js');
+    const cacheService = cacheServiceModule.default;
     const products = cacheService.getAllProducts();
     
     res.json({
@@ -138,7 +139,8 @@ app.post("/refresh-cache", async (req, res) => {
     const { updateCacheInBackground } = await import('./controllers/productsController.js');
     await updateCacheInBackground();
     
-    const { cacheService } = await import('./services/cacheService.js');
+    const cacheServiceModule = await import('./services/cacheService.js');
+    const cacheService = cacheServiceModule.default;
     const products = cacheService.getAllProducts();
     
     res.json({
@@ -160,7 +162,8 @@ app.post("/refresh-cache", async (req, res) => {
 // Endpoint для отримання детальної статистики кешу
 app.get("/cache-stats", async (req, res) => {
   try {
-    const { cacheService } = await import('./services/cacheService.js');
+    const cacheServiceModule = await import('./services/cacheService.js');
+    const cacheService = cacheServiceModule.default;
     const allProducts = cacheService.getAllProducts();
     const cacheStatus = cacheService.getCacheStatus();
     
