@@ -31,8 +31,8 @@ router.delete("/cache", strictLimiter, asyncHandler(clearCache));
 // 3. Маршрути для категорій (з префіксом для уникнення конфліктів)
 router.get("/category/:category", apiLimiter, asyncHandler(getProductsByCategory));
 
-// 4. Товар за ID (перевірка, що це число) — безпечний шаблон без бекслешів
-router.get("/product/:id([0-9]+)", apiLimiter, asyncHandler(getProductById));
+// 4. Товар за ID (простий параметр без regex)
+router.get("/product/:id", apiLimiter, asyncHandler(getProductById));
 
 // 5. Головний маршрут для всіх товарів (БЕЗ СЛЕШУ в кінці)
 router.get("", apiLimiter, asyncHandler(getProducts));
