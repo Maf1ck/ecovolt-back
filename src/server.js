@@ -81,7 +81,8 @@ app.get("/", (req, res) => {
       cors: "/cors-test",
       productsCount: "/products-count",
       cacheStats: "/cache-stats",
-      refreshCache: "/refresh-cache (POST)"
+      refreshCache: "/refresh-cache (POST)",
+      promStats: "/prom-stats"
     },
     cors: {
       origin: req.headers.origin,
@@ -192,7 +193,125 @@ app.get("/cache-stats", async (req, res) => {
     });
   }
 });
+// Endpoint для отримання детальної статистики кешу
+app.get("/cache-stats", async (req, res) => {
+  try {
+    const cacheServiceModule = await import('./services/cacheService.js');
+    const cacheService = cacheServiceModule.default;
+    const allProducts = cacheService.getAllProducts();
+    const cacheStatus = cacheService.getCacheStatus();
+    
+    // Статистика по категоріях
+    const categoryStats = {};
+    Object.keys(cacheService.categoryGroups).forEach(category => {
+      const products = cacheService.getCategoryProducts(category);
+      if (products.length > 0) {
+        categoryStats[category] = products.length;
+      }
+    });
+    
+    res.json({
+      success: true,
+      totalProducts: allProducts.length,
+      categories: categoryStats,
+      cacheStatus: cacheStatus,
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    logger.error("Помилка при отриманні статистики кешу:", error);
+    res.status(500).json({
+      success: false,
+      error: "Не вдалося отримати статистику кешу",
+      details: error.message
+    });
+  }
+});
 
+
+// Endpoint для отримання детальної статистики кешу
+app.get("/cache-stats", async (req, res) => {
+  try {
+    const cacheServiceModule = await import('./services/cacheService.js');
+    const cacheService = cacheServiceModule.default;
+    const allProducts = cacheService.getAllProducts();
+    const cacheStatus = cacheService.getCacheStatus();
+    
+    // Статистика по категоріях
+    const categoryStats = {};
+    Object.keys(cacheService.categoryGroups).forEach(category => {
+      const products = cacheService.getCategoryProducts(category);
+      if (products.length > 0) {
+        categoryStats[category] = products.length;
+      }
+    });
+    
+    res.json({
+      success: true,
+      totalProducts: allProducts.length,
+      categories: categoryStats,
+      cacheStatus: cacheStatus,
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    logger.error("Помилка при отриманні статистики кешу:", error);
+    res.status(500).json({
+      success: false,
+      error: "Не вдалося отримати статистику кешу",
+      details: error.message
+    });
+  }
+});
+
+// Endpoint для отримання статистики Prom.ua профілю
+app.get("/prom-stats", async (req, res) => {
+  try {
+    logger.info("🔍 Запит статистики Prom.ua профілю");
+    
+    const { promService } = await import('./services/promService.js');
+    
+    // Тестуємо з'єднання з API
+    const connectionTest = await promService.testConnection();
+    
+    // Отримуємо статистику API
+    const apiStats = await promService.getAPIStats();
+    
+    // Додатково спробуємо отримати загальну кількість товарів
+    let totalProductsInProfile = 0;
+    try {
+      // Робимо тестовий запит без фільтрів для оцінки загальної кількості
+      const testResponse = await promService.createClient().get('/products/list', {
+        params: { limit: 1 }
+      });
+      
+      // Якщо API повертає загальну кількість
+      if (testResponse.data.total) {
+        totalProductsInProfile = testResponse.data.total;
+      }
+    } catch (error) {
+      logger.warn("Не вдалося отримати загальну кількість товарів:", error.message);
+    }
+    
+    res.json({
+      success: true,
+      message: "Статистика Prom.ua профілю",
+      connection: connectionTest,
+      apiStats: apiStats,
+      profileInfo: {
+        estimatedTotalProducts: totalProductsInProfile || "Невідомо",
+        note: "Це приблизна оцінка. Точна кількість може відрізнятися."
+      },
+      timestamp: new Date().toISOString()
+    });
+    
+  } catch (error) {
+    logger.error("Помилка при отриманні статистики Prom.ua:", error);
+    res.status(500).json({
+      success: false,
+      error: "Не вдалося отримати статистику Prom.ua",
+      details: error.message
+    });
+  }
+});
 // Базовий health check endpoint
 app.get('/health', (req, res) => {
   res.json({
