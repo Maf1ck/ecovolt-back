@@ -41,32 +41,30 @@ app.use(
   })
 );
 
-// CORS налаштування - ВИПРАВЛЕНО
+// CORS налаштування - максимально спрощено для розробки
 app.use(cors({
-  origin: process.env.NODE_ENV === 'production' 
-    ? ['https://ecovolt-front.vercel.app', 'https://ecovolt-frontend.vercel.app'] // Оновлено на реальні домени
-    : ['http://localhost:5173', 'http://localhost:3000', 'http://127.0.0.1:5173'],
-  credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'HEAD'],
-  allowedHeaders: [
-    'Content-Type', 
-    'Authorization', 
-    'X-Requested-With',
-    'Cache-Control',
-    'Accept',
-    'Origin',
-    'User-Agent',
-    'DNT',
-    'If-Modified-Since',
-    'Keep-Alive'
-  ],
-  exposedHeaders: ['Content-Length', 'X-JSON'],
-  preflightContinue: false,
-  optionsSuccessStatus: 204
+  origin: '*',
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['*'],
+  credentials: false
 }));
 
-// Обробка preflight запитів
-app.options('*', cors());
+// Додаткові CORS заголовки для всіх запитів
+app.use((req, res, next) => {
+  // Логуємо CORS запити
+  logger.info(`🌐 CORS запит: ${req.method} ${req.path} з origin: ${req.headers.origin}`);
+  
+  res.header('Access-Control-Allow-Origin', '*');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+  res.header('Access-Control-Allow-Headers', '*');
+  
+  if (req.method === 'OPTIONS') {
+    logger.info(`✅ CORS preflight запит оброблено для ${req.path}`);
+    res.sendStatus(200);
+  } else {
+    next();
+  }
+});
 
 // Парсинг JSON
 app.use(express.json({ limit: '10mb' }));
@@ -79,11 +77,29 @@ app.get("/", (req, res) => {
     endpoints: {
       products: "/api/products",
       test: "/api/products/test",
-      health: "/health"
+      health: "/health",
+      cors: "/cors-test"
     },
     cors: {
       origin: req.headers.origin,
       allowed: true
+    }
+  });
+});
+
+// Тестовий endpoint для перевірки CORS
+app.get("/cors-test", (req, res) => {
+  logger.info(`🧪 CORS тест запит: ${req.method} ${req.path} з origin: ${req.headers.origin}`);
+  
+  res.json({
+    success: true,
+    message: "CORS тест пройшов успішно",
+    origin: req.headers.origin,
+    timestamp: new Date().toISOString(),
+    cors: {
+      allowOrigin: res.getHeader('Access-Control-Allow-Origin'),
+      allowMethods: res.getHeader('Access-Control-Allow-Methods'),
+      allowHeaders: res.getHeader('Access-Control-Allow-Headers')
     }
   });
 });
