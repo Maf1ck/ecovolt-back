@@ -88,6 +88,7 @@ class PromService {
             });
             const responseData = response.data;
             const { products, last_id } = responseData;
+            logger.info(`➡️ last_id з відповіді: ${last_id}, кількість товарів: ${products?.length}`);
             if (products && products.length > 0) {
               categoryProducts.push(...products);
               logger.info(`📦 Завантажено ${products.length} товарів з ${category}. Всього для категорії: ${categoryProducts.length}`);
