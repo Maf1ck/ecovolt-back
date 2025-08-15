@@ -88,43 +88,32 @@ export const initializeCache = async () => {
 };
 
 /**
- * Допоміжна функція для створення відповіді з пагінацією
+ * Допоміжна функція для створення відповіді з пагінацією через last_id
  */
-const createPaginationResponse = (products, page, limit, category = null) => {
-  const pageNum = Math.max(1, parseInt(page) || 1);
-  const limitNum = Math.max(1, Math.min(200, parseInt(limit) || 8)); // Збільшено максимальний ліміт до 200
-  const start = (pageNum - 1) * limitNum;
-  const end = start + limitNum;
+const createPaginationResponse = (products, limit, lastId = null, category = null) => {
+  const limitNum = Math.max(1, Math.min(100, parseInt(limit) || 100));
+  // Сортуємо товари за id
+  const sortedProducts = [...products].sort((a, b) => parseInt(a.id) - parseInt(b.id));
 
-  // ВАЖЛИВО: сортуємо товари для консистентності
-  const sortedProducts = [...products].sort((a, b) => {
-    // Сортуємо за ID для стабільної пагінації
-    return parseInt(a.id) - parseInt(b.id);
-  });
-
-  const paginatedProducts = sortedProducts.slice(start, end);
-  const totalPages = Math.ceil(sortedProducts.length / limitNum);
-  const hasMore = end < sortedProducts.length;
-
-  // Детальна інформація про пагінацію
-  const showingStart = Math.min(start + 1, sortedProducts.length);
-  const showingEnd = Math.min(end, sortedProducts.length);
-  
-  logger.info(`📄 Пагінація: сторінка ${pageNum}/${totalPages}, показано ${showingStart}-${showingEnd} з ${sortedProducts.length}`);
+  let startIdx = 0;
+  if (lastId) {
+    const idx = sortedProducts.findIndex(p => String(p.id) === String(lastId));
+    startIdx = idx >= 0 ? idx + 1 : 0;
+  }
+  const endIdx = startIdx + limitNum;
+  const paginatedProducts = sortedProducts.slice(startIdx, endIdx);
+  const newLastId = paginatedProducts.length > 0 ? paginatedProducts[paginatedProducts.length - 1].id : null;
+  const hasMore = endIdx < sortedProducts.length;
 
   return {
     success: true,
     products: paginatedProducts,
     pagination: {
-      page: pageNum,
       limit: limitNum,
-      totalPages,
-      totalItems: sortedProducts.length,
+      last_id: newLastId,
       hasMore,
-      showing: `${showingStart}-${showingEnd} з ${sortedProducts.length}`,
-      // Додаткова інформація для фронтенду
-      startItem: showingStart,
-      endItem: showingEnd
+      totalItems: sortedProducts.length,
+      showing: `${startIdx + 1}-${Math.min(endIdx, sortedProducts.length)} з ${sortedProducts.length}`
     },
     category: category,
     fromCache: true,
@@ -133,19 +122,19 @@ const createPaginationResponse = (products, page, limit, category = null) => {
     debug: {
       originalProductsCount: products.length,
       sortedProductsCount: sortedProducts.length,
-      requestedPage: pageNum,
-      requestedLimit: limitNum
+      requestedLimit: limitNum,
+      requestedLastId: lastId
     }
   };
 };
+
 /**
  * ГОЛОВНИЙ ENDPOINT: Отримання всіх товарів або товарів за категорією
  */
 export const getProducts = async (req, res) => {
   try {
-    const { page = 1, limit = 8, category } = req.query;
-    
-    logger.info(`🔍 Запит товарів: category=${category || 'всі'}, page=${page}, limit=${limit}`);
+    const { limit = 100, last_id = null, category } = req.query;
+    logger.info(`🔍 Запит товарів: category=${category || 'всі'}, last_id=${last_id}, limit=${limit}`);
 
     // Запускаємо оновлення кешу у фоні якщо потрібно (не чекаємо)
     if (cacheService.shouldUpdateCache() && !cacheService.cache.products.isUpdating) {
@@ -174,7 +163,6 @@ export const getProducts = async (req, res) => {
     if (products.length === 0) {
       if (!cacheService.cache.products.isUpdating) {
         logger.warn("⚠️ Немає товарів в кеші, спробуємо завантажити");
-        
         try {
           // Спробуємо завантажити товари синхронно
           await updateCacheInBackground();
@@ -183,7 +171,6 @@ export const getProducts = async (req, res) => {
           logger.error("❌ Не вдалося завантажити товари:", error);
         }
       }
-      
       // Якщо все ще немає товарів
       if (products.length === 0) {
         return res.status(503).json({
@@ -196,30 +183,16 @@ export const getProducts = async (req, res) => {
       }
     }
 
-    // Створюємо відповідь з пагінацією
-    const response = createPaginationResponse(products, page, limit, category);
-    
-    logger.info(`📊 Надіслано ${response.products.length} товарів (${response.pagination.showing})`);
-    
+    // Створюємо відповідь з пагінацією через last_id
+    const response = createPaginationResponse(products, limit, last_id, category);
+    logger.info(`📊 Надіслано ${response.products.length} товарів (last_id=${response.pagination.last_id})`);
     res.json(response);
-
   } catch (error) {
     logger.error("❌ Помилка в getProducts:", error);
-    
-    // Додаткова інформація про помилку
-    const errorDetails = {
-      message: error.message,
-      stack: process.env.NODE_ENV === 'development' ? error.stack : undefined,
-      timestamp: new Date().toISOString(),
-      cacheStatus: cacheService.getCacheStatus()
-    };
-    
     res.status(500).json({
       success: false,
-      error: "Помилка сервера при завантаженні товарів",
-      details: error.message,
-      cacheStatus: cacheService.getCacheStatus(),
-      debug: errorDetails
+      error: "Помилка сервера",
+      details: error.message
     });
   }
 };
