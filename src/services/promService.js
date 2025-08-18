@@ -57,14 +57,14 @@ class PromService {
    * ВИПРАВЛЕНА ФУНКЦІЯ: Завантажує ВСІ товари з Prom.ua API
    * Використовує пагінацію для отримання всіх товарів понад 100
    */
-  async fetchAllProducts() {
+  async fetchAllProducts(initialLastId = null) {
     logger.info("🚀 Початок завантаження всіх товарів з Prom.ua (без категорій)");
     const client = this.createClient();
     let allProducts = [];
     let requestCount = 0;
     const limit = 100; // Максимальний ліміт Prom.ua
     const maxRequests = 1000; // Достатньо для всіх сторінок
-    let lastId = null;
+    let lastId = initialLastId; // <-- Додаємо можливість явно передати lastId
     let hasMore = true;
 
     try {
@@ -108,12 +108,16 @@ class PromService {
       }
       logger.info(`🏁 Завантаження завершено. Всього товарів: ${uniqueProducts.length}`);
       logger.info(`📊 Виконано запитів: ${requestCount}`);
-      return uniqueProducts;
+      // Повертаємо масив товарів і last_id останнього товару
+      const last_id = uniqueProducts.length > 0 ? uniqueProducts[uniqueProducts.length - 1].id : null;
+      return { products: uniqueProducts, last_id };
     } catch (error) {
       logger.error("❌ Критична помилка при завантаженні товарів:", error);
       if (allProducts.length > 0) {
         logger.warn(`⚠️ Повертаємо частково завантажені товари: ${allProducts.length}`);
-        return this.removeDuplicates(allProducts);
+        const uniqueProducts = this.removeDuplicates(allProducts);
+        const last_id = uniqueProducts.length > 0 ? uniqueProducts[uniqueProducts.length - 1].id : null;
+        return { products: uniqueProducts, last_id };
       }
       throw new Error(`Не вдалося завантажити товари: ${error.message}. Запитів: ${requestCount}, завантажено: ${allProducts.length}`);
     }
