@@ -23,7 +23,7 @@ const updateCacheInBackground = async () => {
 
     // Завантажуємо всі товари з Prom.ua API
     logger.info("📡 Запуск завантаження всіх товарів...");
-    const products = await promService.fetchAllProducts();
+    const { products, last_id } = await promService.fetchAllProducts();
     
     if (!products || products.length === 0) {
       throw new Error("Не отримано жодного товару з API");
@@ -32,7 +32,7 @@ const updateCacheInBackground = async () => {
     // Оновлюємо кеш
     cacheService.updateCache(products);
     
-    logger.info(`✅ Фонове оновлення завершено успішно: ${products.length} товарів`);
+    logger.info(`✅ Фонове оновлення завершено успішно: ${products.length} товарів, last_id: ${last_id}`);
 
     // Детальна статистика по категоріях
     const categoryStats = {};
